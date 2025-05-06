@@ -300,16 +300,42 @@ app.post('/auctions/all', async (req, res) => {
     // Parse scheduled time if provided
     if (useScheduledStart && scheduledTime) {
       // Parse the datetime from the form in the specified timezone
-      startTime = moment.tz(scheduledTime, selectedTimezone).toDate();
-      console.log(`Scheduled start time: ${startTime.toISOString()} (${selectedTimezone})`);
-      
-      // Check if the scheduled time is in the future
-      isRunningNow = startTime <= new Date();
-      
-      if (!isRunningNow) {
-        console.log(`Auction scheduled to start at: ${startTime.toISOString()}`);
-      } else {
-        console.log('Scheduled time is in the past, starting auction immediately');
+      // The datetime-local input provides values in the local timezone, convert to the selected timezone
+      try {
+        console.log(`Original scheduledTime input: ${scheduledTime}`);
+        
+        // Extract date components from input
+        const [datePart, timePart] = scheduledTime.split('T');
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hours, minutes] = timePart.split(':').map(Number);
+        
+        // Create a moment in the specified timezone
+        const scheduledMoment = moment.tz({
+          year: year,
+          month: month - 1, // moment months are 0-indexed
+          date: day,
+          hour: hours,
+          minute: minutes
+        }, selectedTimezone);
+        
+        startTime = scheduledMoment.toDate();
+        
+        console.log(`Parsed scheduled time: ${scheduledMoment.format()}`);
+        console.log(`Selected timezone: ${selectedTimezone}`);
+        console.log(`Scheduled start time: ${startTime.toISOString()}`);
+        
+        // Check if the scheduled time is in the future
+        isRunningNow = startTime <= new Date();
+        
+        if (!isRunningNow) {
+          console.log(`Auction scheduled to start at: ${scheduledMoment.format('YYYY-MM-DD HH:mm:ss')} ${selectedTimezone}`);
+        } else {
+          console.log('Scheduled time is in the past, starting auction immediately');
+        }
+      } catch (error) {
+        console.error("Error parsing scheduled time:", error);
+        // Default to immediate start if there's an error
+        isRunningNow = true;
       }
     }
     
@@ -373,7 +399,9 @@ app.post('/auctions/all', async (req, res) => {
     if (isRunningNow) {
       res.redirect('/?message=Auction started with initial price reduction');
     } else {
-      res.redirect(`/?message=Auction scheduled to start at ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')} ${selectedTimezone}`);
+      // Format the time in the selected timezone for the message
+      const formattedTime = moment(startTime).tz(selectedTimezone).format('YYYY-MM-DD HH:mm:ss');
+      res.redirect(`/?message=Auction scheduled to start at ${formattedTime} ${selectedTimezone}`);
     }
   } catch (error) {
     console.error('Error creating auction:', error);
@@ -851,6 +879,12 @@ schedule.scheduleJob('* * * * *', async () => {
     // Check scheduled auctions
     if (!globalAuctionState.isRunning && globalAuctionState.scheduledStartTime) {
       const now = new Date();
+      
+      // Log the current time and the scheduled start time for debugging
+      console.log(`Current time: ${now.toISOString()}`);
+      console.log(`Scheduled start time: ${globalAuctionState.scheduledStartTime.toISOString()}`);
+      console.log(`Time difference: ${globalAuctionState.scheduledStartTime - now}ms`);
+      
       if (now >= globalAuctionState.scheduledStartTime) {
         console.log('Starting scheduled auction now');
         globalAuctionState.isRunning = true;
@@ -891,6 +925,12 @@ schedule.scheduleJob('* * * * *', async () => {
         });
         
         return; // Exit the job after starting the auction
+      } else {
+        // Log the time until the auction starts
+        const timeUntil = Math.floor((globalAuctionState.scheduledStartTime - now) / 1000);
+        const minutes = Math.floor(timeUntil / 60);
+        const seconds = timeUntil % 60;
+        console.log(`Auction scheduled to start in ${minutes}m ${seconds}s`);
       }
     }
     
@@ -1253,6 +1293,8 @@ app.get('/api/auction-status', (req, res) => {
         // Auction is scheduled but not started yet
         nextUpdate = new Date(globalAuctionState.scheduledStartTime);
         timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+        console.log(`Auction is scheduled to start at ${nextUpdate.toISOString()}`);
+        console.log(`Time until start: ${timeUntilNextUpdate}ms`);
       }
       
       return res.json({
@@ -1283,6 +1325,8 @@ app.get('/api/auction-status', (req, res) => {
       // Scheduled auction
       nextUpdate = new Date(auction.scheduled_start);
       timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+      console.log(`DB: Auction is scheduled to start at ${nextUpdate.toISOString()}`);
+      console.log(`DB: Time until start: ${timeUntilNextUpdate}ms`);
     }
     
     console.log('Sending auction data:', {
@@ -1294,6 +1338,14 @@ app.get('/api/auction-status', (req, res) => {
       timezone: auction.timezone || 'CET'
     });
     
+    // Format the scheduled time in the correct timezone for display
+    let formattedScheduledTime = null;
+    if (auction.scheduled_start) {
+      formattedScheduledTime = moment(auction.scheduled_start)
+        .tz(auction.timezone || 'CET')
+        .format('YYYY-MM-DD HH:mm:ss');
+    }
+    
     res.json({
       isRunning: !!auction.is_active,
       isScheduled: isScheduled,
@@ -1303,6 +1355,7 @@ app.get('/api/auction-status', (req, res) => {
       intervalMinutes: parseInt(auction.interval_minutes),
       startingDiscountPercent: parseInt(auction.reduction_percent),
       scheduledStartTime: auction.scheduled_start ? new Date(auction.scheduled_start).toISOString() : null,
+      formattedScheduledTime: formattedScheduledTime,
       timezone: auction.timezone || 'CET'
     });
   });
