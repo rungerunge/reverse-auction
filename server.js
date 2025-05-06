@@ -473,8 +473,10 @@ app.post('/auctions/all', async (req, res) => {
         const diffSecs = Math.floor((diffMs % 60000) / 1000);
         
         if (!isRunningNow) {
-          console.log(`Auction will be scheduled to start at: ${scheduledMoment.format('YYYY-MM-DD HH:mm:ss')} ${selectedTimezone}`);
-          console.log(`This is ${diffMins} minutes and ${diffSecs} seconds from now`);
+          console.log(`SCHEDULING: Auction will start at: ${scheduledMoment.format('YYYY-MM-DD HH:mm:ss')} ${selectedTimezone}`);
+          console.log(`SCHEDULING: This is ${diffMins} minutes and ${diffSecs} seconds from now`);
+          console.log(`SCHEDULING: Current server time: ${moment().format('YYYY-MM-DD HH:mm:ss')}`);
+          console.log(`SCHEDULING: Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
         } else {
           console.log(`Scheduled time is in the past (${Math.abs(diffMins)} minutes ${Math.abs(diffSecs)} seconds ago), starting auction immediately`);
         }
@@ -533,6 +535,16 @@ app.post('/auctions/all', async (req, res) => {
     // Create one record in the auctions table to track the global auction state
     console.log('Recording auction state in database...');
     await new Promise((resolve, reject) => {
+      const scheduledStartISO = useScheduledStart ? startTime.toISOString().replace('T', ' ').split('.')[0] : null;
+      
+      console.log('SCHEDULING: Database record being created:');
+      console.log(`SCHEDULING: - product_id: global`);
+      console.log(`SCHEDULING: - is_active: ${isRunningNow ? 1 : 0}`);
+      console.log(`SCHEDULING: - interval_minutes: ${interval}`);
+      console.log(`SCHEDULING: - reduction_percent: ${reductionPercent}`);
+      console.log(`SCHEDULING: - scheduled_start: ${scheduledStartISO}`);
+      console.log(`SCHEDULING: - timezone: ${selectedTimezone}`);
+      
       db.run(
         'INSERT INTO auctions (product_id, original_price, current_price, interval_minutes, reduction_percent, next_update, is_active, scheduled_start, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
@@ -543,15 +555,16 @@ app.post('/auctions/all', async (req, res) => {
           reductionPercent, 
           nextUpdateTime.toISOString().replace('T', ' ').split('.')[0], 
           isRunningNow ? 1 : 0,
-          useScheduledStart ? startTime.toISOString().replace('T', ' ').split('.')[0] : null,
+          scheduledStartISO,
           selectedTimezone
         ],
-        (err) => {
+        function(err) {
           if (err) {
             console.error('Database error:', err);
             reject(err);
           } else {
-            console.log('Successfully recorded auction state in database');
+            const insertId = this.lastID;
+            console.log(`SCHEDULING: Successfully recorded auction in database with ID: ${insertId}`);
             resolve();
           }
         }
@@ -1157,6 +1170,20 @@ schedule.scheduleJob('* * * * *', async () => {
       
       if (scheduledAuctions.length > 0) {
         console.log(`SCHEDULER: Found ${scheduledAuctions.length} scheduled auctions in database`);
+        
+        // Log each scheduled auction for debugging
+        scheduledAuctions.forEach((auction, index) => {
+          const scheduledStartTime = new Date(auction.scheduled_start);
+          const diffMs = scheduledStartTime - now;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffSecs = Math.floor((diffMs % 60000) / 1000);
+          
+          console.log(`SCHEDULER: Auction #${auction.id} details:`);
+          console.log(`SCHEDULER: - Scheduled start: ${auction.scheduled_start}`);
+          console.log(`SCHEDULER: - Timezone: ${auction.timezone || 'CET'}`);
+          console.log(`SCHEDULER: - Status: ${diffMs > 0 ? 'Pending' : 'Due to start'}`);
+          console.log(`SCHEDULER: - Time remaining: ${diffMs > 0 ? `${diffMins}m ${diffSecs}s` : 'In the past'}`);
+        });
         
         // Process each scheduled auction
         for (const auction of scheduledAuctions) {
@@ -1966,6 +1993,66 @@ app.get('/api/scheduled-auctions', (req, res) => {
       });
     }
   );
+});
+
+// Add this new diagnostic API endpoint after the other routes
+app.get('/api/scheduled-auctions', async (req, res) => {
+  try {
+    console.log('Fetching scheduled auctions for API endpoint...');
+    
+    // Get scheduled auctions from database
+    const scheduledAuctions = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM auctions WHERE scheduled_start IS NOT NULL', (err, rows) => {
+        if (err) {
+          console.error('Error fetching scheduled auctions:', err);
+          reject(err);
+        } else {
+          resolve(rows || []);
+        }
+      });
+    });
+    
+    // Add formatted time for each auction
+    const formattedAuctions = scheduledAuctions.map(auction => {
+      const scheduledTime = new Date(auction.scheduled_start);
+      const timezone = auction.timezone || 'CET';
+      const formattedTime = moment(scheduledTime).tz(timezone).format('YYYY-MM-DD HH:mm:ss');
+      
+      return {
+        ...auction,
+        formatted_scheduled_start: `${formattedTime} ${timezone}`,
+        current_server_time: moment().format('YYYY-MM-DD HH:mm:ss'),
+        server_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        time_until_start: scheduledTime > new Date() ? 
+          `${Math.floor((scheduledTime - new Date()) / 60000)} minutes` : 'In the past'
+      };
+    });
+    
+    // Add global state info
+    const diagnosticInfo = {
+      scheduledAuctions: formattedAuctions,
+      globalAuctionState: {
+        isRunning: globalAuctionState.isRunning,
+        scheduledStartTime: globalAuctionState.scheduledStartTime ? 
+          globalAuctionState.scheduledStartTime.toISOString() : null,
+        timezone: globalAuctionState.timezone,
+        intervalMinutes: globalAuctionState.intervalMinutes,
+        startingDiscountPercent: globalAuctionState.startingDiscountPercent,
+        currentDiscountPercent: globalAuctionState.currentDiscountPercent,
+        productCount: globalAuctionState.products ? globalAuctionState.products.length : 0
+      },
+      serverInfo: {
+        currentTime: new Date().toISOString(),
+        nodeVersion: process.version,
+        platform: process.platform
+      }
+    };
+    
+    res.json(diagnosticInfo);
+  } catch (error) {
+    console.error('Error in scheduled auctions API:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 const PORT = process.env.PORT || 3000;

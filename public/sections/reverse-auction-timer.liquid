@@ -235,8 +235,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (now < startTime) {
         return {
           started: false,
-          currentDiscount: 0,
-          nextDiscount: startingDiscount,
+          currentDiscount: startingDiscount, // Use starting discount as the base
+          nextDiscount: startingDiscount + discountIncrement,
           nextUpdateTime: startTime,
           completed: false,
           message: "Auction hasn't started yet"
@@ -247,10 +247,10 @@ document.addEventListener('DOMContentLoaded', function() {
       const elapsed = now - startTime;
       const intervalMs = intervalMinutes * 60 * 1000;
       
-      // Calculate intervals elapsed
+      // Calculate intervals elapsed (number of full completed intervals)
       const intervalsElapsed = Math.floor(elapsed / intervalMs);
       
-      // Calculate current discount percentage
+      // Calculate current discount percentage - for each completed interval, add the increment
       const currentDiscount = Math.min(startingDiscount + (intervalsElapsed * discountIncrement), maxDiscount);
       
       // Calculate next discount (if not at max)
@@ -265,6 +265,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Check if we've reached maximum discount
       const completed = currentDiscount >= maxDiscount;
+      
+      if (showDebug) {
+        debug(`Start time: ${startTime}, Now: ${now}, Elapsed: ${Math.floor(elapsed/60000)} mins, Intervals: ${intervalsElapsed}, Current discount: ${currentDiscount}%`);
+      }
       
       return {
         started: true,
