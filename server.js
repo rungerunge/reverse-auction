@@ -4,6 +4,7 @@ const fetch = require('node-fetch');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const schedule = require('node-schedule');
+const moment = require('moment-timezone');
 
 // Validate environment variables
 const requiredEnvVars = [
@@ -34,18 +35,22 @@ app.use((req, res, next) => {
   const shopifyDomain = process.env.SHOPIFY_SHOP_URL || '';
   const allowedOrigins = [
     `https://${shopifyDomain}`,
-    `https://admin.shopify.com`,
+    'https://admin.shopify.com',
     'https://localhost:3000'
   ];
   
   const origin = req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    // For development/testing, allow all origins
+    res.header('Access-Control-Allow-Origin', '*');
   }
   
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Cache-Control', 'no-cache');
   
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
@@ -75,6 +80,8 @@ function createTables() {
     reduction_percent REAL NOT NULL,
     is_active BOOLEAN DEFAULT 1,
     next_update DATETIME,
+    scheduled_start DATETIME,
+    timezone TEXT DEFAULT 'CET',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 }
@@ -254,6 +261,8 @@ async function fetchAllProducts() {
 let globalAuctionState = {
   isRunning: false,
   startedAt: null,
+  scheduledStartTime: null,
+  timezone: 'CET',
   intervalMinutes: 1,
   startingDiscountPercent: 5,
   currentDiscountPercent: 0,
@@ -261,11 +270,11 @@ let globalAuctionState = {
   products: []
 };
 
-// Modified auction/all route - complete rewrite with global state
+// Modified auction/all route - updated with timezone scheduling
 app.post('/auctions/all', async (req, res) => {
-  console.log('--- Starting auction for all products with consistent discounts ---');
+  console.log('--- Starting/scheduling auction for all products with consistent discounts ---');
   console.log('Form data received:', req.body);
-  const { interval, reductionPercent } = req.body;
+  const { interval, reductionPercent, startOption, scheduledTime, timezone } = req.body;
   
   try {
     // Clear any existing auctions
@@ -282,32 +291,74 @@ app.post('/auctions/all', async (req, res) => {
     console.log(`Found ${products.length} active products`);
     
     // Set up the global auction state
+    const useScheduledStart = startOption === 'scheduled';
+    const selectedTimezone = timezone || 'CET';
+    
+    let startTime = new Date();
+    let isRunningNow = true;
+    
+    // Parse scheduled time if provided
+    if (useScheduledStart && scheduledTime) {
+      // Parse the datetime from the form in the specified timezone
+      startTime = moment.tz(scheduledTime, selectedTimezone).toDate();
+      console.log(`Scheduled start time: ${startTime.toISOString()} (${selectedTimezone})`);
+      
+      // Check if the scheduled time is in the future
+      isRunningNow = startTime <= new Date();
+      
+      if (!isRunningNow) {
+        console.log(`Auction scheduled to start at: ${startTime.toISOString()}`);
+      } else {
+        console.log('Scheduled time is in the past, starting auction immediately');
+      }
+    }
+    
     globalAuctionState = {
-      isRunning: true,
-      startedAt: new Date(),
+      isRunning: isRunningNow,
+      startedAt: isRunningNow ? new Date() : null,
+      scheduledStartTime: useScheduledStart ? startTime : null,
+      timezone: selectedTimezone,
       intervalMinutes: parseInt(interval) || 1,
       startingDiscountPercent: parseInt(reductionPercent) || 5,
-      currentDiscountPercent: parseInt(reductionPercent) || 5,
-      lastUpdateTime: new Date(),
+      currentDiscountPercent: isRunningNow ? (parseInt(reductionPercent) || 5) : 0,
+      lastUpdateTime: isRunningNow ? new Date() : null,
       products: products.filter(p => p.variants && p.variants.length > 0)
     };
     
-    console.log(`Starting auction with ${globalAuctionState.products.length} products`);
+    console.log(`Auction setup with ${globalAuctionState.products.length} products`);
     console.log(`Initial discount: ${globalAuctionState.currentDiscountPercent}%`);
     console.log(`Interval: ${globalAuctionState.intervalMinutes} minutes`);
+    console.log(`Timezone: ${selectedTimezone}`);
     
-    // Apply the initial discount to all products
-    await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
+    // Apply the initial discount if starting immediately
+    if (isRunningNow) {
+      await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
+    }
     
     // Set next update time in DB for tracking
     const nextUpdateTime = new Date();
-    nextUpdateTime.setMinutes(nextUpdateTime.getMinutes() + parseInt(interval));
+    if (isRunningNow) {
+      nextUpdateTime.setMinutes(nextUpdateTime.getMinutes() + parseInt(interval));
+    } else {
+      // If scheduled for the future, the first update will be at the start time
+      nextUpdateTime.setTime(startTime.getTime());
+    }
     
     // Create one record in the auctions table to track the global auction state
     await new Promise((resolve, reject) => {
       db.run(
-        'INSERT INTO auctions (product_id, original_price, current_price, interval_minutes, reduction_percent, next_update, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        ['global', 0, 0, interval, reductionPercent, nextUpdateTime.toISOString().replace('T', ' ').split('.')[0], 1],
+        'INSERT INTO auctions (product_id, original_price, current_price, interval_minutes, reduction_percent, next_update, is_active, scheduled_start, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          'global', 
+          0, 
+          0, 
+          interval, 
+          reductionPercent, 
+          nextUpdateTime.toISOString().replace('T', ' ').split('.')[0], 
+          isRunningNow ? 1 : 0,
+          useScheduledStart ? startTime.toISOString().replace('T', ' ').split('.')[0] : null,
+          selectedTimezone
+        ],
         (err) => {
           if (err) {
             console.error('Database error:', err);
@@ -319,7 +370,11 @@ app.post('/auctions/all', async (req, res) => {
       );
     });
     
-    res.redirect('/?message=Auction started with initial price reduction');
+    if (isRunningNow) {
+      res.redirect('/?message=Auction started with initial price reduction');
+    } else {
+      res.redirect(`/?message=Auction scheduled to start at ${moment(startTime).format('YYYY-MM-DD HH:mm:ss')} ${selectedTimezone}`);
+    }
   } catch (error) {
     console.error('Error creating auction:', error);
     res.redirect('/?error=Error creating auction');
@@ -790,14 +845,60 @@ async function resetAllProductPrices() {
   console.log('Finished resetting product prices');
 }
 
-// Modified scheduled job - use global state
-schedule.scheduleJob('*/1 * * * *', async () => {
-  // Only run if an auction is active
-  if (!globalAuctionState.isRunning) {
-    return;
-  }
-  
+// Add timezone awareness to the scheduled job
+schedule.scheduleJob('* * * * *', async () => {
   try {
+    // Check scheduled auctions
+    if (!globalAuctionState.isRunning && globalAuctionState.scheduledStartTime) {
+      const now = new Date();
+      if (now >= globalAuctionState.scheduledStartTime) {
+        console.log('Starting scheduled auction now');
+        globalAuctionState.isRunning = true;
+        globalAuctionState.startedAt = now;
+        globalAuctionState.lastUpdateTime = now;
+        globalAuctionState.currentDiscountPercent = globalAuctionState.startingDiscountPercent;
+        
+        // Start the auction by updating prices
+        await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
+        
+        // Update the auction record to active
+        await new Promise((resolve, reject) => {
+          db.run(
+            'UPDATE auctions SET is_active = 1, current_price = ? WHERE product_id = ?',
+            [globalAuctionState.currentDiscountPercent, 'global'],
+            (err) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+        
+        console.log('Scheduled auction started successfully');
+        
+        // Set the next update time
+        const nextUpdate = new Date();
+        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
+        
+        await new Promise((resolve, reject) => {
+          db.run(
+            'UPDATE auctions SET next_update = ? WHERE product_id = ?',
+            [nextUpdate.toISOString().replace('T', ' ').split('.')[0], 'global'],
+            (err) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+        
+        return; // Exit the job after starting the auction
+      }
+    }
+    
+    // Only run the update check if an auction is active
+    if (!globalAuctionState.isRunning) {
+      return;
+    }
+    
     console.log('Checking if auction update is due...');
     
     // Check if an update is due
@@ -828,9 +929,10 @@ schedule.scheduleJob('*/1 * * * *', async () => {
       
       // Stop the auction
       globalAuctionState.isRunning = false;
+      globalAuctionState.scheduledStartTime = null;
       
       await new Promise((resolve, reject) => {
-        db.run('UPDATE auctions SET is_active = 0', (err) => {
+        db.run('UPDATE auctions SET is_active = 0, scheduled_start = NULL', (err) => {
           if (err) reject(err);
           else resolve();
         });
@@ -1088,15 +1190,44 @@ app.post('/auctions/:id/delete', async (req, res) => {
   }
 });
 
-// Auction status API endpoint for storefront timers
+// Auction status API endpoint for storefront timers - updated with timezone support
 app.get('/api/auction-status', (req, res) => {
-  // Add CORS headers to allow requests from the Shopify storefront
-  res.header('Access-Control-Allow-Origin', `https://${process.env.SHOPIFY_SHOP_URL}`);
-  res.header('Access-Control-Allow-Methods', 'GET');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  console.log('Auction status API called from:', req.headers.origin);
+  
+  // Check for scheduled start time
+  if (!globalAuctionState.isRunning && globalAuctionState.scheduledStartTime) {
+    const now = new Date();
+    if (now >= globalAuctionState.scheduledStartTime) {
+      // Time to start the auction
+      console.log('Starting scheduled auction now');
+      globalAuctionState.isRunning = true;
+      globalAuctionState.startedAt = now;
+      globalAuctionState.lastUpdateTime = now;
+      globalAuctionState.currentDiscountPercent = globalAuctionState.startingDiscountPercent;
+      
+      // Start the auction by updating prices
+      updateAllProductPrices(globalAuctionState.currentDiscountPercent)
+        .then(() => {
+          console.log('Scheduled auction started successfully');
+          
+          // Update the auction record to active
+          db.run(
+            'UPDATE auctions SET is_active = 1, current_price = ? WHERE product_id = ?',
+            [globalAuctionState.currentDiscountPercent, 'global'],
+            (err) => {
+              if (err) console.error('Error updating auction record:', err);
+            }
+          );
+        })
+        .catch(err => {
+          console.error('Error starting scheduled auction:', err);
+        });
+    }
+  }
   
   // Check if auction is running
-  if (!globalAuctionState.isRunning) {
+  if (!globalAuctionState.isRunning && !globalAuctionState.scheduledStartTime) {
+    console.log('No active auction running');
     return res.json({
       isRunning: false,
       message: 'No auction is currently running'
@@ -1104,36 +1235,75 @@ app.get('/api/auction-status', (req, res) => {
   }
   
   // Get the next update time from database for accuracy
-  db.get('SELECT * FROM auctions WHERE product_id = ? AND is_active = 1', ['global'], async (err, auction) => {
+  db.get('SELECT * FROM auctions WHERE product_id = ?', ['global'], async (err, auction) => {
     if (err || !auction) {
+      console.log('No auction found in database, using memory state');
       // If there's an error or no auction found, use the memory state as fallback
-      const now = new Date();
-      const nextUpdate = new Date(globalAuctionState.lastUpdateTime);
-      nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
-      const timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+      
+      let now = new Date();
+      let nextUpdate;
+      let timeUntilNextUpdate;
+      
+      if (globalAuctionState.isRunning) {
+        // Auction is running, calculate next update time
+        nextUpdate = new Date(globalAuctionState.lastUpdateTime);
+        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
+        timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+      } else if (globalAuctionState.scheduledStartTime) {
+        // Auction is scheduled but not started yet
+        nextUpdate = new Date(globalAuctionState.scheduledStartTime);
+        timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+      }
       
       return res.json({
         isRunning: globalAuctionState.isRunning,
+        isScheduled: !globalAuctionState.isRunning && !!globalAuctionState.scheduledStartTime,
         currentDiscountPercent: globalAuctionState.currentDiscountPercent,
-        nextUpdateTime: nextUpdate.toISOString(),
-        timeUntilNextUpdateMs: timeUntilNextUpdate,
+        nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
+        timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
         intervalMinutes: globalAuctionState.intervalMinutes,
-        startingDiscountPercent: globalAuctionState.startingDiscountPercent
+        startingDiscountPercent: globalAuctionState.startingDiscountPercent,
+        scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
+        timezone: globalAuctionState.timezone || 'CET'
       });
     }
     
     // If auction found in DB, use that data
     const now = new Date();
-    const nextUpdate = new Date(auction.next_update);
-    const timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+    const isScheduled = !auction.is_active && auction.scheduled_start;
+    
+    let nextUpdate;
+    let timeUntilNextUpdate;
+    
+    if (auction.is_active) {
+      // Active auction
+      nextUpdate = new Date(auction.next_update);
+      timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+    } else if (isScheduled) {
+      // Scheduled auction
+      nextUpdate = new Date(auction.scheduled_start);
+      timeUntilNextUpdate = Math.max(0, nextUpdate - now);
+    }
+    
+    console.log('Sending auction data:', {
+      isRunning: !!auction.is_active,
+      isScheduled: isScheduled,
+      discountPercent: auction.reduction_percent,
+      nextUpdate: nextUpdate ? nextUpdate.toISOString() : null,
+      timeUntil: timeUntilNextUpdate || 0,
+      timezone: auction.timezone || 'CET'
+    });
     
     res.json({
-      isRunning: true,
+      isRunning: !!auction.is_active,
+      isScheduled: isScheduled,
       currentDiscountPercent: parseInt(auction.reduction_percent),
-      nextUpdateTime: nextUpdate.toISOString(),
-      timeUntilNextUpdateMs: timeUntilNextUpdate,
+      nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
+      timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
       intervalMinutes: parseInt(auction.interval_minutes),
-      startingDiscountPercent: parseInt(auction.reduction_percent)
+      startingDiscountPercent: parseInt(auction.reduction_percent),
+      scheduledStartTime: auction.scheduled_start ? new Date(auction.scheduled_start).toISOString() : null,
+      timezone: auction.timezone || 'CET'
     });
   });
 });

@@ -118,7 +118,44 @@
                     <label for="reductionPercent">Reduction Percent:</label>
                     <input type="number" name="reductionPercent" id="reductionPercent" min="1" max="100" value="5" required>
                 </div>
-                <button type="submit" class="action-button">Start Auction for All Products</button>
+                
+                <!-- Scheduling options -->
+                <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: flex; align-items: center;">
+                            <input type="radio" name="startOption" value="immediate" id="startImmediate" checked> 
+                            <span style="margin-left: 5px;">Start immediately</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label style="display: flex; align-items: center;">
+                            <input type="radio" name="startOption" value="scheduled" id="startScheduled"> 
+                            <span style="margin-left: 5px; font-weight: bold;">Schedule start time</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="scheduleOptions" style="display: none; margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px;">
+                    <div>
+                        <label for="scheduledTime">Start Time (in selected timezone):</label>
+                        <input type="datetime-local" name="scheduledTime" id="scheduledTime">
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <label for="timezone">Timezone:</label>
+                        <select name="timezone" id="timezone">
+                            <option value="CET" selected>Central European Time (CET)</option>
+                            <option value="Europe/Paris">Paris</option>
+                            <option value="Europe/Berlin">Berlin</option>
+                            <option value="Europe/London">London</option>
+                            <option value="America/New_York">New York</option>
+                            <option value="America/Los_Angeles">Los Angeles</option>
+                            <option value="Asia/Tokyo">Tokyo</option>
+                            <option value="Australia/Sydney">Sydney</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <button type="submit" class="action-button" style="margin-top: 15px;">Start Auction for All Products</button>
             </form>
             <form action="/stop-all-auctions" method="POST" style="display:inline-block;">
                 <button type="submit" class="action-button" style="background:#e74c3c;">Stop Auction for All Products</button>
@@ -199,6 +236,43 @@
                     countdownElement.textContent = `${displayMinutes}m ${displaySeconds}s`;
                 }
             }, 1000);
+        }
+        
+        // Schedule options toggle
+        const scheduleOptions = document.getElementById('scheduleOptions');
+        const startImmediateRadio = document.getElementById('startImmediate');
+        const startScheduledRadio = document.getElementById('startScheduled');
+        
+        if (scheduleOptions && startImmediateRadio && startScheduledRadio) {
+            // Handler for immediate start option
+            startImmediateRadio.addEventListener('change', function() {
+                if (this.checked) {
+                    scheduleOptions.style.display = 'none';
+                }
+            });
+            
+            // Handler for scheduled start option
+            startScheduledRadio.addEventListener('change', function() {
+                if (this.checked) {
+                    scheduleOptions.style.display = 'block';
+                    
+                    // Set default time to now + 1 hour if not already set
+                    const scheduledTimeInput = document.getElementById('scheduledTime');
+                    if (scheduledTimeInput && !scheduledTimeInput.value) {
+                        const now = new Date();
+                        now.setHours(now.getHours() + 1);
+                        
+                        // Format as YYYY-MM-DDTHH:MM
+                        const year = now.getFullYear();
+                        const month = String(now.getMonth() + 1).padStart(2, '0');
+                        const day = String(now.getDate()).padStart(2, '0');
+                        const hours = String(now.getHours()).padStart(2, '0');
+                        const minutes = String(now.getMinutes()).padStart(2, '0');
+                        
+                        scheduledTimeInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+                    }
+                }
+            });
         }
     </script>
 </body>

@@ -1,14 +1,11 @@
 {% comment %}
-  Auction Timer Snippet
+  Auction Timer Snippet - Simplified Version
   
   Instructions:
   1. Add this snippet to your product template:
      {% render 'auction-timer' %}
   
-  2. Configure a proxy URL in your Shopify store admin:
-     - Go to Online Store > Themes > Actions > Edit code
-     - Find config/settings_schema.json
-     - Add the auction app proxy URL
+  2. Make sure your server URL is correctly set in the script below
 {% endcomment %}
 
 <div class="auction-timer" id="auction-timer" style="display: none;">
@@ -19,7 +16,7 @@
     <div class="auction-timer__countdown">
       <span class="auction-timer__label">Next price drop in:</span>
       <div class="auction-timer__time">
-        <span class="hours">00</span>:<span class="minutes">00</span>:<span class="seconds">00</span>
+        <span class="countdown-display">00:00:00</span>
       </div>
     </div>
   </div>
@@ -86,38 +83,55 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const timerElement = document.getElementById('auction-timer');
-  if (!timerElement) return;
+  if (!timerElement) {
+    console.error('Auction timer element not found');
+    return;
+  }
   
-  // Replace with direct call to Render.com server
+  // Set this to your server URL
   const statusUrl = 'https://reverse-auction.onrender.com/api/auction-status';
   
   let countdown;
   let nextUpdateTime;
   
+  // Format time as HH:MM:SS
+  function formatTime(hours, minutes, seconds) {
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+  
   // Function to fetch auction status
   async function fetchAuctionStatus() {
     try {
+      console.log('Fetching auction status from:', statusUrl);
       const response = await fetch(statusUrl, {
         method: 'GET',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
         },
+        cache: 'no-store',
         credentials: 'omit' // Don't send cookies for cross-origin requests
       });
+      
       if (!response.ok) {
-        console.error('Error fetching auction status:', response.statusText);
+        console.error('Error fetching auction status:', response.status, response.statusText);
         return false;
       }
       
       const data = await response.json();
+      console.log('Auction data received:', data);
       
       if (!data.isRunning) {
+        console.log('No active auction running');
         timerElement.style.display = 'none';
         return false;
       }
       
       // Update timer display with current discount
-      timerElement.querySelector('.discount-percent').textContent = data.currentDiscountPercent;
+      const discountElement = timerElement.querySelector('.discount-percent');
+      if (discountElement) {
+        discountElement.textContent = data.currentDiscountPercent;
+      }
       
       // Store the next update time
       nextUpdateTime = new Date(data.nextUpdateTime);
@@ -142,6 +156,13 @@ document.addEventListener('DOMContentLoaded', function() {
     // If time has expired, refresh auction status
     if (timeRemaining <= 0) {
       clearInterval(countdown);
+      
+      // Display zeros while waiting for update
+      const countdownDisplay = timerElement.querySelector('.countdown-display');
+      if (countdownDisplay) {
+        countdownDisplay.textContent = formatTime(0, 0, 0);
+      }
+      
       // Wait a moment to let the server update prices
       setTimeout(function() {
         fetchAuctionStatus().then(isRunning => {
@@ -158,18 +179,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
     
-    // Update timer display
-    timerElement.querySelector('.hours').textContent = hours.toString().padStart(2, '0');
-    timerElement.querySelector('.minutes').textContent = minutes.toString().padStart(2, '0');
-    timerElement.querySelector('.seconds').textContent = seconds.toString().padStart(2, '0');
+    // Update timer display with formatted time
+    const countdownDisplay = timerElement.querySelector('.countdown-display');
+    if (countdownDisplay) {
+      countdownDisplay.textContent = formatTime(hours, minutes, seconds);
+    }
   }
   
   // Initial fetch and setup
+  console.log('Initializing auction timer');
   fetchAuctionStatus().then(isRunning => {
+    console.log('Auction running:', isRunning);
     if (isRunning) {
       // Update the display immediately, then every second
       updateTimerDisplay();
       countdown = setInterval(updateTimerDisplay, 1000);
+      console.log('Countdown timer started');
     }
   });
   

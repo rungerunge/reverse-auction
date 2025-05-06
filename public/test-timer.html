@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auction Timer Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1, h2 {
+      text-align: center;
+      color: #333;
+    }
+    
+    .test-panel {
+      margin-bottom: 30px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 20px;
+      background-color: #f9f9f9;
+    }
+    
+    .timer-container {
+      background: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 15px 0;
+      text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .timer-heading {
+      font-size: 1.4em;
+      font-weight: bold;
+      color: #e74c3c;
+      margin-bottom: 10px;
+    }
+    
+    .discount-percent {
+      font-size: 1.6em;
+    }
+    
+    .countdown-label {
+      font-size: 0.9em;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .countdown-display {
+      font-family: monospace;
+      font-size: 1.4em;
+      font-weight: bold;
+      background: #333;
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 4px;
+      letter-spacing: 2px;
+      display: inline-block;
+    }
+    
+    .info-box {
+      background-color: #e9f7fd;
+      border: 1px solid #a9d5e2;
+      border-radius: 4px;
+      padding: 10px;
+      margin: 10px 0;
+      color: #0c5460;
+    }
+    
+    .input-panel {
+      margin-top: 20px;
+    }
+    
+    .input-panel label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    .input-panel input, .input-panel select {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    button:hover {
+      background-color: #45a049;
+    }
+  </style>
+</head>
+<body>
+  <h1>Auction Timer Test Page</h1>
+  
+  <div class="test-panel">
+    <h2>System Information</h2>
+    <div class="info-box">
+      <div><strong>Browser Time:</strong> <span id="browser-time"></span></div>
+      <div><strong>Browser Timezone:</strong> <span id="browser-timezone"></span></div>
+      <div><strong>CET Time Now:</strong> <span id="cet-time"></span></div>
+    </div>
+  </div>
+  
+  <div class="test-panel">
+    <h2>Server-Connected Timer</h2>
+    <p>This timer connects to the server for auction status:</p>
+    
+    <div class="timer-container" id="server-timer">
+      <div class="timer-heading">
+        <span class="discount-percent" id="server-discount">0</span>% OFF
+      </div>
+      <div class="countdown-label">Next price drop in:</div>
+      <div class="countdown-display" id="server-countdown">00:00:00</div>
+    </div>
+    
+    <div id="server-status" class="info-box" style="display: none;"></div>
+  </div>
+  
+  <div class="test-panel">
+    <h2>Standalone CET Timer</h2>
+    <p>This timer works without server connection, based purely on CET timezone:</p>
+    
+    <div class="input-panel">
+      <label for="end-time">End Time (CET):</label>
+      <input type="datetime-local" id="end-time">
+      
+      <label for="discount">Discount Percentage:</label>
+      <input type="number" id="discount" min="1" max="100" value="10">
+      
+      <button id="start-timer">Start Timer</button>
+    </div>
+    
+    <div class="timer-container" id="standalone-timer" style="display: none;">
+      <div class="timer-heading">
+        <span class="discount-percent" id="standalone-discount">10</span>% OFF
+      </div>
+      <div class="countdown-label">Sale ends in:</div>
+      <div class="countdown-display" id="standalone-countdown">00:00:00</div>
+    </div>
+  </div>
+  
+  <script>
+    // Display system information
+    function updateSystemInfo() {
+      const now = new Date();
+      document.getElementById('browser-time').textContent = now.toString();
+      document.getElementById('browser-timezone').textContent = 
+        Intl.DateTimeFormat().resolvedOptions().timeZone + 
+        " (UTC" + (now.getTimezoneOffset() > 0 ? "-" : "+") + 
+        Math.abs(now.getTimezoneOffset() / 60) + ")";
+      
+      // Get CET time
+      const cetOptions = { timeZone: 'Europe/Paris', hour12: false };
+      document.getElementById('cet-time').textContent = 
+        now.toLocaleString('en-US', cetOptions);
+    }
+    
+    // Update every second
+    updateSystemInfo();
+    setInterval(updateSystemInfo, 1000);
+    
+    // Format time as HH:MM:SS
+    function formatTime(hours, minutes, seconds) {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    
+    // Server-connected timer
+    (function() {
+      const timerElement = document.getElementById('server-timer');
+      const statusElement = document.getElementById('server-status');
+      const discountElement = document.getElementById('server-discount');
+      const countdownElement = document.getElementById('server-countdown');
+      
+      // Replace with your server URL
+      const statusUrl = '/api/auction-status';
+      
+      let countdown;
+      let nextUpdateTime;
+      
+      // Function to fetch auction status
+      async function fetchAuctionStatus() {
+        try {
+          statusElement.textContent = 'Fetching auction status...';
+          statusElement.style.display = 'block';
+          
+          const response = await fetch(statusUrl, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache'
+            },
+            cache: 'no-store',
+            credentials: 'omit'
+          });
+          
+          if (!response.ok) {
+            statusElement.textContent = `Error: ${response.status} ${response.statusText}`;
+            return false;
+          }
+          
+          const data = await response.json();
+          
+          if (!data.isRunning && !data.isScheduled) {
+            statusElement.textContent = 'No active or scheduled auction found.';
+            return false;
+          }
+          
+          // Display current status
+          if (data.isRunning) {
+            statusElement.textContent = `Active auction with ${data.currentDiscountPercent}% discount.`;
+            discountElement.textContent = data.currentDiscountPercent;
+          } else {
+            statusElement.textContent = `Auction scheduled to start at ${new Date(data.scheduledStartTime).toString()} (${data.timezone})`;
+            discountElement.textContent = data.startingDiscountPercent;
+          }
+          
+          // Store the next update time
+          nextUpdateTime = data.isRunning 
+            ? new Date(data.nextUpdateTime)
+            : new Date(data.scheduledStartTime);
+          
+          return true;
+        } catch (error) {
+          statusElement.textContent = `Error: ${error.message}`;
+          return false;
+        }
+      }
+      
+      // Function to update the countdown display
+      function updateServerTimerDisplay() {
+        if (!nextUpdateTime) return;
+        
+        const now = new Date();
+        const timeRemaining = Math.max(0, nextUpdateTime - now);
+        
+        // If time has expired, refresh auction status
+        if (timeRemaining <= 0) {
+          clearInterval(countdown);
+          countdownElement.textContent = "00:00:00";
+          
+          // Wait a moment to let the server update prices
+          setTimeout(() => {
+            fetchAuctionStatus().then(active => {
+              if (active) {
+                countdown = setInterval(updateServerTimerDisplay, 1000);
+              }
+            });
+          }, 3000);
+          return;
+        }
+        
+        // Calculate hours, minutes, seconds
+        const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+        
+        // Update timer display
+        countdownElement.textContent = formatTime(hours, minutes, seconds);
+      }
+      
+      // Initial fetch
+      fetchAuctionStatus().then(active => {
+        if (active) {
+          updateServerTimerDisplay();
+          countdown = setInterval(updateServerTimerDisplay, 1000);
+        }
+      });
+      
+      // Refresh every 30 seconds
+      setInterval(() => {
+        fetchAuctionStatus();
+      }, 30000);
+    })();
+    
+    // Standalone CET timer
+    (function() {
+      const timerElement = document.getElementById('standalone-timer');
+      const discountElement = document.getElementById('standalone-discount');
+      const countdownElement = document.getElementById('standalone-countdown');
+      
+      const endTimeInput = document.getElementById('end-time');
+      const discountInput = document.getElementById('discount');
+      const startButton = document.getElementById('start-timer');
+      
+      // Set default end time (1 hour from now in local time)
+      const now = new Date();
+      now.setHours(now.getHours() + 1);
+      
+      // Format as YYYY-MM-DDTHH:MM
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      
+      endTimeInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+      
+      // Convert local time input to CET for the timer
+      function getEndTimeInCET() {
+        try {
+          const inputDateTime = new Date(endTimeInput.value);
+          
+          // Format as display time
+          return inputDateTime;
+        } catch (error) {
+          console.error('Error parsing end time:', error);
+          return null;
+        }
+      }
+      
+      // Function to update the countdown display
+      function updateStandaloneTimerDisplay() {
+        const endTime = getEndTimeInCET();
+        if (!endTime) {
+          timerElement.style.display = "none";
+          return;
+        }
+        
+        const now = new Date();
+        const timeRemaining = Math.max(0, endTime - now);
+        
+        // If time has expired
+        if (timeRemaining <= 0) {
+          countdownElement.textContent = "OFFER ENDED";
+          return;
+        }
+        
+        // Calculate hours, minutes, seconds
+        const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+        
+        // Update timer display
+        countdownElement.textContent = formatTime(hours, minutes, seconds);
+      }
+      
+      // Start button handler
+      startButton.addEventListener('click', () => {
+        const discount = parseInt(discountInput.value) || 10;
+        discountElement.textContent = discount;
+        
+        // Show the timer
+        timerElement.style.display = "block";
+        
+        // Start countdown
+        updateStandaloneTimerDisplay();
+        setInterval(updateStandaloneTimerDisplay, 1000);
+      });
+    })();
+  </script>
+</body>
+</html> 

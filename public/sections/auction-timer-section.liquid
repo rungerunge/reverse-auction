@@ -1,200 +1,365 @@
-{%- comment -%}
-  Auction Timer Section
+{% comment %}
+  Standalone Timezone-Based Auction Timer Section
   
-  This section can be added to any page in your Shopify theme.
-  It displays a countdown to the next price drop in the auction.
-{%- endcomment -%}
+  This section shows a countdown timer based on the specified CET time,
+  with interval-based discount increases.
+{% endcomment %}
 
-<div class="auction-timer-section">
-  <div class="auction-timer" id="auction-timer" style="display: none;">
-    <div class="auction-timer__content">
-      <div class="auction-timer__discount">
-        <span class="discount-percent">0</span>% OFF
-      </div>
-      <div class="auction-timer__countdown">
-        <span class="auction-timer__label">Next price drop in:</span>
-        <div class="auction-timer__time">
-          <span class="hours">00</span>:<span class="minutes">00</span>:<span class="seconds">00</span>
-        </div>
+<div class="auction-timer-standalone" id="auction-timer-standalone">
+  <div class="auction-timer__content">
+    <div class="auction-timer__discount">
+      <span class="discount-percent" id="current-discount">{{ section.settings.starting_discount_percent }}</span>% OFF
+    </div>
+    {% if section.settings.show_next_discount %}
+    <div class="auction-timer__next-discount">
+      Next: <span class="next-discount-percent" id="next-discount">{{ section.settings.starting_discount_percent | plus: section.settings.discount_increment }}</span>% OFF
+    </div>
+    {% endif %}
+    <div class="auction-timer__countdown">
+      <span class="auction-timer__label">{{ section.settings.countdown_text }}</span>
+      <div class="auction-timer__time">
+        <span class="countdown-display">00:00:00</span>
       </div>
     </div>
   </div>
-  
-  <style>
-  .auction-timer {
-    background: #f8f8f8;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 15px;
-    margin: 15px 0;
-    text-align: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  }
-  
-  .auction-timer__discount {
-    font-size: 1.4em;
-    font-weight: bold;
-    color: #e74c3c;
-    margin-bottom: 10px;
-  }
-  
-  .discount-percent {
-    font-size: 1.6em;
-  }
-  
+</div>
+
+<style>
+.auction-timer-standalone {
+  background: {{ section.settings.background_color }};
+  border: 1px solid {{ section.settings.border_color }};
+  border-radius: 4px;
+  padding: 15px;
+  margin: 15px 0;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.auction-timer__discount {
+  font-size: 1.4em;
+  font-weight: bold;
+  color: {{ section.settings.discount_color }};
+  margin-bottom: 5px;
+}
+
+.auction-timer__next-discount {
+  font-size: 0.9em;
+  color: {{ section.settings.discount_color }};
+  margin-bottom: 10px;
+  opacity: 0.8;
+}
+
+.discount-percent {
+  font-size: 1.6em;
+}
+
+.auction-timer__countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.auction-timer__label {
+  font-size: 0.9em;
+  color: {{ section.settings.text_color }};
+  margin-bottom: 5px;
+}
+
+.auction-timer__time {
+  font-family: monospace;
+  font-size: 1.4em;
+  font-weight: bold;
+  background: {{ section.settings.timer_background }};
+  color: {{ section.settings.timer_color }};
+  padding: 5px 10px;
+  border-radius: 4px;
+  letter-spacing: 2px;
+}
+
+@media (min-width: 768px) {
   .auction-timer__countdown {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    flex-direction: row;
   }
   
   .auction-timer__label {
-    font-size: 0.9em;
-    color: #666;
-    margin-bottom: 5px;
+    margin-bottom: 0;
+    margin-right: 10px;
+  }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const timerElement = document.getElementById('auction-timer-standalone');
+  const currentDiscountElement = document.getElementById('current-discount');
+  const nextDiscountElement = document.getElementById('next-discount');
+  
+  if (!timerElement) {
+    console.error('Standalone auction timer element not found');
+    return;
   }
   
-  .auction-timer__time {
-    font-family: monospace;
-    font-size: 1.4em;
-    font-weight: bold;
-    background: #333;
-    color: #fff;
-    padding: 5px 10px;
-    border-radius: 4px;
-    letter-spacing: 2px;
+  // Get configured time settings from section settings
+  const cetStartTime = "{{ section.settings.start_time }}"; // Format: "YYYY-MM-DD HH:MM:SS"
+  const startingDiscount = parseInt("{{ section.settings.starting_discount_percent }}") || 0;
+  const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}") || 60;
+  const discountIncrement = parseInt("{{ section.settings.discount_increment }}") || 5;
+  const maxDiscount = parseInt("{{ section.settings.max_discount_percent }}") || 50;
+  const showNextDiscount = {% if section.settings.show_next_discount %}true{% else %}false{% endif %};
+  
+  // Format time as HH:MM:SS
+  function formatTime(hours, minutes, seconds) {
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
   
-  @media (min-width: 768px) {
-    .auction-timer__countdown {
-      flex-direction: row;
+  // Convert CET time string to Date object
+  function parseCETTime(timeString) {
+    try {
+      // Parse the CET time string
+      const [datePart, timePart] = timeString.split(' ');
+      const [year, month, day] = datePart.split('-');
+      const [hours, minutes, seconds] = timePart.split(':');
+      
+      // Create a date object in CET timezone
+      // Note: JavaScript dates have month 0-11, so we subtract 1 from the month
+      const cetDate = new Date(Date.UTC(
+        parseInt(year), 
+        parseInt(month) - 1, 
+        parseInt(day), 
+        parseInt(hours) - 1, // Adjust for CET being UTC+1
+        parseInt(minutes), 
+        parseInt(seconds) || 0
+      ));
+      
+      return cetDate;
+    } catch (error) {
+      console.error('Error parsing time:', error);
+      return null;
+    }
+  }
+  
+  // Calculate discount and next interval based on elapsed time
+  function calculateDiscountState(startTime) {
+    const now = new Date();
+    if (now < startTime) {
+      // Sale hasn't started yet
+      return {
+        hasStarted: false,
+        currentDiscount: startingDiscount,
+        nextDiscount: startingDiscount,
+        nextUpdateTime: startTime,
+        isCompleted: false
+      };
     }
     
-    .auction-timer__label {
-      margin-bottom: 0;
-      margin-right: 10px;
-    }
+    // Calculate time elapsed since start in milliseconds
+    const elapsed = now - startTime;
+    const intervalMs = intervalMinutes * 60 * 1000;
+    
+    // Calculate how many full intervals have passed
+    const intervalsElapsed = Math.floor(elapsed / intervalMs);
+    
+    // Calculate current discount
+    const currentDiscount = Math.min(startingDiscount + (intervalsElapsed * discountIncrement), maxDiscount);
+    
+    // Calculate next discount
+    const nextDiscount = Math.min(currentDiscount + discountIncrement, maxDiscount);
+    
+    // Calculate time until next interval
+    const nextUpdateTime = new Date(startTime.getTime() + ((intervalsElapsed + 1) * intervalMs));
+    
+    // Check if we've reached max discount
+    const isCompleted = currentDiscount >= maxDiscount;
+    
+    return {
+      hasStarted: true,
+      currentDiscount,
+      nextDiscount,
+      nextUpdateTime,
+      isCompleted
+    };
   }
-  </style>
   
-  <script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const timerElement = document.getElementById('auction-timer');
-    if (!timerElement) return;
+  // Function to update the timer display
+  function updateTimerDisplay() {
+    const startTime = parseCETTime(cetStartTime);
+    if (!startTime) {
+      timerElement.style.display = "none";
+      return;
+    }
     
-    // The URL for your auction status API
-    const statusUrl = 'https://reverse-auction.onrender.com/api/auction-status';
+    const discountState = calculateDiscountState(startTime);
     
-    let countdown;
-    let nextUpdateTime;
+    // Update the discount display
+    if (currentDiscountElement) {
+      currentDiscountElement.textContent = discountState.currentDiscount;
+    }
     
-    // Function to fetch auction status
-    async function fetchAuctionStatus() {
-      try {
-        console.log('Fetching auction status from server...');
-        const response = await fetch(statusUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          credentials: 'omit' // Don't send cookies for cross-origin requests
-        });
-        
-        if (!response.ok) {
-          console.error('Error fetching auction status:', response.statusText);
-          return false;
-        }
-        
-        const data = await response.json();
-        console.log('Auction data received:', data);
-        
-        if (!data.isRunning) {
-          console.log('No active auction running');
-          timerElement.style.display = 'none';
-          return false;
-        }
-        
-        // Update timer display with current discount percentage from server
-        timerElement.querySelector('.discount-percent').textContent = data.currentDiscountPercent;
-        
-        // Store the next update time from server
-        nextUpdateTime = new Date(data.nextUpdateTime);
-        console.log('Next update time set to:', nextUpdateTime);
-        
-        // Show the timer
-        timerElement.style.display = 'block';
-        
-        return true;
-      } catch (error) {
-        console.error('Error fetching auction status:', error);
-        
-        // For demo/debug only: If server fails, show a test timer
-        // Remove this block in production
-        console.log('Falling back to test timer');
-        timerElement.style.display = 'block';
-        if (!nextUpdateTime) {
-          nextUpdateTime = new Date();
-          nextUpdateTime.setMinutes(nextUpdateTime.getMinutes() + 10);
-        }
-        
-        return true;
+    // Update next discount if enabled
+    if (showNextDiscount && nextDiscountElement && !discountState.isCompleted) {
+      nextDiscountElement.textContent = discountState.nextDiscount;
+      nextDiscountElement.parentElement.style.display = 'block';
+    } else if (nextDiscountElement) {
+      nextDiscountElement.parentElement.style.display = 'none';
+    }
+    
+    // Handle countdown display
+    const countdownDisplay = timerElement.querySelector('.countdown-display');
+    if (!countdownDisplay) return;
+    
+    const now = new Date();
+    
+    if (!discountState.hasStarted) {
+      // Countdown to start
+      const timeToStart = Math.max(0, startTime - now);
+      
+      if (timeToStart <= 0) {
+        // Refresh the page once the sale starts
+        window.location.reload();
+        return;
       }
-    }
-    
-    // Function to update the countdown display
-    function updateTimerDisplay() {
-      if (!nextUpdateTime) return;
       
-      const now = new Date();
-      const timeRemaining = Math.max(0, nextUpdateTime - now);
+      // Calculate hours, minutes, seconds until start
+      const hours = Math.floor(timeToStart / (1000 * 60 * 60));
+      const minutes = Math.floor((timeToStart % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((timeToStart % (1000 * 60)) / 1000);
       
-      // If time has expired, refresh auction status
-      if (timeRemaining <= 0) {
-        clearInterval(countdown);
-        // Wait a moment to let the server update prices
-        setTimeout(function() {
-          fetchAuctionStatus().then(isRunning => {
-            if (isRunning) {
-              countdown = setInterval(updateTimerDisplay, 1000);
-            }
-          });
-        }, 3000);
+      countdownDisplay.textContent = formatTime(hours, minutes, seconds);
+    } else if (discountState.isCompleted) {
+      // Sale completed at max discount
+      countdownDisplay.textContent = "{{ section.settings.completed_text }}";
+      
+      // Hide timer after expired duration if set
+      if ({% if section.settings.hide_when_completed %}true{% else %}false{% endif %}) {
+        setTimeout(() => {
+          timerElement.style.display = "none";
+        }, 5000); // Wait 5 seconds before hiding
+      }
+    } else {
+      // Countdown to next discount increase
+      const timeToNextUpdate = Math.max(0, discountState.nextUpdateTime - now);
+      
+      // If time has expired, refresh to get the new discount
+      if (timeToNextUpdate <= 0) {
+        // Auto refresh to show the new discount
+        window.location.reload();
         return;
       }
       
       // Calculate hours, minutes, seconds
-      const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
-      const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+      const hours = Math.floor(timeToNextUpdate / (1000 * 60 * 60));
+      const minutes = Math.floor((timeToNextUpdate % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((timeToNextUpdate % (1000 * 60)) / 1000);
       
-      // Update timer display
-      timerElement.querySelector('.hours').textContent = hours.toString().padStart(2, '0');
-      timerElement.querySelector('.minutes').textContent = minutes.toString().padStart(2, '0');
-      timerElement.querySelector('.seconds').textContent = seconds.toString().padStart(2, '0');
+      countdownDisplay.textContent = formatTime(hours, minutes, seconds);
     }
-    
-    // Initial fetch and setup
-    fetchAuctionStatus().then(isRunning => {
-      if (isRunning) {
-        // Update the display immediately, then every second
-        updateTimerDisplay();
-        countdown = setInterval(updateTimerDisplay, 1000);
-      }
-    });
-    
-    // Refresh auction status periodically (every 30 seconds)
-    setInterval(function() {
-      fetchAuctionStatus();
-    }, 30000);
-  });
-  </script>
-</div>
+  }
+  
+  // Initial update
+  updateTimerDisplay();
+  
+  // Update every second
+  setInterval(updateTimerDisplay, 1000);
+});
+</script>
 
 {% schema %}
 {
   "name": "Auction Timer",
-  "settings": [],
+  "settings": [
+    {
+      "type": "text",
+      "id": "start_time",
+      "label": "Start Time (CET)",
+      "info": "Format: YYYY-MM-DD HH:MM:SS, e.g. 2023-12-31 12:00:00",
+      "default": "2023-12-31 12:00:00"
+    },
+    {
+      "type": "number",
+      "id": "starting_discount_percent",
+      "label": "Starting Discount Percentage",
+      "default": 10
+    },
+    {
+      "type": "number",
+      "id": "interval_minutes",
+      "label": "Interval Between Discounts (minutes)",
+      "default": 60
+    },
+    {
+      "type": "number",
+      "id": "discount_increment",
+      "label": "Discount Increment Per Interval",
+      "default": 5
+    },
+    {
+      "type": "number",
+      "id": "max_discount_percent",
+      "label": "Maximum Discount Percentage",
+      "default": 50
+    },
+    {
+      "type": "checkbox",
+      "id": "show_next_discount",
+      "label": "Show Next Discount Level",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "countdown_text",
+      "label": "Countdown Label",
+      "default": "Next price drop in:"
+    },
+    {
+      "type": "text",
+      "id": "completed_text",
+      "label": "Text When Maximum Discount Reached",
+      "default": "MAXIMUM DISCOUNT!"
+    },
+    {
+      "type": "checkbox",
+      "id": "hide_when_completed",
+      "label": "Hide timer when maximum discount reached",
+      "default": false
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Background Color",
+      "default": "#f8f8f8"
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border Color",
+      "default": "#ddd"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text Color",
+      "default": "#666"
+    },
+    {
+      "type": "color",
+      "id": "discount_color",
+      "label": "Discount Text Color",
+      "default": "#e74c3c"
+    },
+    {
+      "type": "color",
+      "id": "timer_background",
+      "label": "Timer Background",
+      "default": "#333"
+    },
+    {
+      "type": "color",
+      "id": "timer_color",
+      "label": "Timer Text Color",
+      "default": "#fff"
+    }
+  ],
   "presets": [
     {
       "name": "Auction Timer",
