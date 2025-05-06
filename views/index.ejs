@@ -65,6 +65,26 @@
             </div>
         <% } %>
 
+        <!-- -------- SCHEDULED AUCTIONS SECTION -------- -->
+        <div id="scheduledAuctionsSection" style="background: #e8f4fd; color: #2980b9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #3498db; margin-top: 20px;">
+            <h3 style="margin-top: 0;">📅 Scheduled Auctions</h3>
+            <div id="scheduledAuctionsLoading">Checking for scheduled auctions...</div>
+            <div id="scheduledAuctionsContent" style="display: none;">
+                <!-- Content will be loaded via JavaScript -->
+            </div>
+            <div id="noScheduledAuctions" style="display: none; font-style: italic;">
+                No auctions currently scheduled.
+            </div>
+            <div style="margin-top: 10px;">
+                <button id="refreshScheduledAuctions" class="action-button" style="background: #2980b9; padding: 5px 10px; font-size: 0.9em;">
+                    Refresh Scheduled Auctions
+                </button>
+                <a href="/api/scheduled-auctions" target="_blank" style="margin-left: 10px; color: #2980b9; text-decoration: underline;">
+                    View Raw API Data
+                </a>
+            </div>
+        </div>
+
         <% if (auctions && auctions.length > 0) { %>
             <div style="background: #dff0d8; color: #3c763d; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-weight: bold;">
                 <h3>🔥 Auction in Progress</h3>
@@ -81,6 +101,8 @@
                     <p>Current discount: <span style="font-size: 1.2em; color: #c0392b;"><%= globalAuction.reduction_percent %>%</span></p>
                     <p>Next price reduction in: <span id="countdown"><%= minutes %>m <%= seconds %>s</span></p>
                     <p>Reduction rate: <%= globalAuction.reduction_percent %>% every <%= globalAuction.interval_minutes %> minute<%= globalAuction.interval_minutes > 1 ? 's' : '' %></p>
+                    <p>Auction ID: <%= globalAuction.id %></p>
+                    <p>Next update time: <%= new Date(globalAuction.next_update).toLocaleString() %></p>
                 <% } else { %>
                     <p>Auction is running for <%= auctions.length %> products.</p>
                 <% } %>
@@ -274,6 +296,80 @@
                 }
             });
         }
+
+        // Function to load scheduled auctions from API
+        function loadScheduledAuctions() {
+            const loadingEl = document.getElementById('scheduledAuctionsLoading');
+            const contentEl = document.getElementById('scheduledAuctionsContent');
+            const noScheduledEl = document.getElementById('noScheduledAuctions');
+            
+            loadingEl.style.display = 'block';
+            contentEl.style.display = 'none';
+            noScheduledEl.style.display = 'none';
+            
+            fetch('/api/scheduled-auctions')
+                .then(response => response.json())
+                .then(data => {
+                    loadingEl.style.display = 'none';
+                    
+                    // Check if we have scheduled auctions
+                    if (data.scheduledAuctions && data.scheduledAuctions.length > 0) {
+                        contentEl.style.display = 'block';
+                        
+                        // Create HTML for each scheduled auction
+                        let html = '<ul style="list-style: none; padding: 0;">';
+                        
+                        data.scheduledAuctions.forEach(auction => {
+                            const now = new Date();
+                            const scheduledTime = new Date(auction.scheduled_start);
+                            const isInPast = scheduledTime < now;
+                            const statusColor = isInPast ? "#e74c3c" : "#27ae60";
+                            const statusText = isInPast ? "Pending execution" : "Scheduled";
+                            
+                            html += `
+                                <li style="border: 1px solid #bdc3c7; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f8f9fa;">
+                                    <div style="font-weight: bold; display: flex; justify-content: space-between;">
+                                        <span>Auction #${auction.id}</span>
+                                        <span style="color: ${statusColor};">${statusText}</span>
+                                    </div>
+                                    <div>
+                                        <strong>Start time:</strong> ${auction.formatted_scheduled_start}
+                                    </div>
+                                    <div>
+                                        <strong>Reduction:</strong> ${auction.reduction_percent}% every ${auction.interval_minutes} minute(s)
+                                    </div>
+                                    <div>
+                                        <strong>Time until start:</strong> ${auction.time_until_start}
+                                    </div>
+                                    <div>
+                                        <strong>Status:</strong> ${auction.is_active ? 'Active' : 'Waiting to start'}
+                                    </div>
+                                </li>
+                            `;
+                        });
+                        
+                        html += '</ul>';
+                        contentEl.innerHTML = html;
+                    } else {
+                        noScheduledEl.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading scheduled auctions:', error);
+                    loadingEl.textContent = 'Error loading scheduled auctions. Please try again.';
+                });
+        }
+        
+        // Load scheduled auctions when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadScheduledAuctions();
+            
+            // Add refresh button handler
+            const refreshButton = document.getElementById('refreshScheduledAuctions');
+            if (refreshButton) {
+                refreshButton.addEventListener('click', loadScheduledAuctions);
+            }
+        });
     </script>
 </body>
 </html> 

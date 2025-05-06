@@ -347,11 +347,110 @@ let globalAuctionState = {
   products: []
 };
 
+// Add timestamp to console logs
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = function(...args) {
+  const timestamp = new Date().toISOString();
+  originalConsoleLog.apply(console, [`[${timestamp}] [INFO]`, ...args]);
+};
+
+console.error = function(...args) {
+  const timestamp = new Date().toISOString();
+  originalConsoleError.apply(console, [`[${timestamp}] [ERROR]`, ...args]);
+};
+
+// Add a function to log detailed state info regularly
+function logDetailedState() {
+  console.log('=======================================================');
+  console.log('!!! DETAILED AUCTION STATE REPORT - RUNNING EVERY MINUTE !!!');
+  console.log('=======================================================');
+  console.log('GLOBAL STATE:');
+  console.log(` - isRunning: ${globalAuctionState.isRunning}`);
+  console.log(` - startedAt: ${globalAuctionState.startedAt ? globalAuctionState.startedAt.toISOString() : 'null'}`);
+  console.log(` - scheduledStartTime: ${globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : 'null'}`);
+  console.log(` - timezone: ${globalAuctionState.timezone}`);
+  console.log(` - intervalMinutes: ${globalAuctionState.intervalMinutes}`);
+  console.log(` - startingDiscountPercent: ${globalAuctionState.startingDiscountPercent}`);
+  console.log(` - currentDiscountPercent: ${globalAuctionState.currentDiscountPercent}`);
+  console.log(` - lastUpdateTime: ${globalAuctionState.lastUpdateTime ? globalAuctionState.lastUpdateTime.toISOString() : 'null'}`);
+  console.log(` - productsLoaded: ${globalAuctionState.products ? globalAuctionState.products.length : 0}`);
+  
+  // Query database for all auctions
+  db.all('SELECT * FROM auctions', (err, rows) => {
+    if (err) {
+      console.error('Error fetching auctions for status report:', err);
+    } else {
+      console.log(`DATABASE STATE: Found ${rows.length} total auctions`);
+      console.log(` - Active auctions: ${rows.filter(a => a.is_active === 1).length}`); 
+      console.log(` - Scheduled auctions: ${rows.filter(a => a.scheduled_start !== null).length}`);
+      
+      // Log details of each auction
+      rows.forEach((auction, i) => {
+        console.log(`AUCTION #${auction.id}:`);
+        console.log(` - Product ID: ${auction.product_id}`);
+        console.log(` - Is active: ${auction.is_active === 1 ? 'Yes' : 'No'}`);
+        console.log(` - Scheduled start: ${auction.scheduled_start || 'Not scheduled'}`);
+        console.log(` - Next update: ${auction.next_update || 'N/A'}`);
+        console.log(` - Reduction percent: ${auction.reduction_percent}%`);
+        console.log(` - Interval minutes: ${auction.interval_minutes}`);
+      });
+    }
+    console.log('=======================================================');
+  });
+}
+
+// Run the detailed state logger every minute
+schedule.scheduleJob('* * * * *', logDetailedState);
+
+// Now add detailed logging to database operations
+
+// Add a wrapper for db.run to add logging
+const originalRun = db.run;
+db.run = function() {
+  const args = Array.from(arguments);
+  const sql = args[0];
+  
+  console.log(`!!! DATABASE OPERATION: ${sql}`);
+  
+  // If this is an insert/update/delete, log the values
+  if (args.length > 1 && Array.isArray(args[1])) {
+    console.log(`!!! DATABASE VALUES: ${JSON.stringify(args[1])}`);
+  }
+  
+  return originalRun.apply(this, args);
+};
+
+// Add a wrapper for db.all to add logging
+const originalAll = db.all;
+db.all = function() {
+  const args = Array.from(arguments);
+  const sql = args[0];
+  
+  console.log(`!!! DATABASE QUERY: ${sql}`);
+  
+  return originalAll.apply(this, args);
+};
+
 // Modified auction/all route - updated with timezone scheduling
 app.post('/auctions/all', async (req, res) => {
   console.log('=======================================================');
+  console.log('!!! POST /auctions/all - AUCTION FORM SUBMITTED !!!');
+  console.log('=======================================================');
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Request from IP: ${req.ip || 'Unknown'}`);
+  console.log(`User agent: ${req.headers['user-agent'] || 'Unknown'}`);
+  console.log(`Form data in detail:`);
+  Object.entries(req.body).forEach(([key, value]) => {
+    console.log(`- ${key}: ${value}`);
+  });
+  
+  console.log('=======================================================');
   console.log('--- STARTING/SCHEDULING AUCTION FOR ALL PRODUCTS ---');
   console.log('=======================================================');
+  console.log(`REQUEST RECEIVED FROM: ${req.headers['user-agent'] || 'Unknown'}`);
+  console.log(`TIMESTAMP: ${new Date().toISOString()}`);
   console.log('Form data received:', req.body);
   
   // Add immediate visible logging
@@ -668,11 +767,16 @@ app.post('/stop-all-auctions', async (req, res) => {
 
 // Optimized helper function to update all products with the same discount percentage
 async function updateAllProductPrices(discountPercent) {
+  console.log(`!!! PRICE UPDATE OPERATION STARTED !!!`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
   console.log(`Attempting to update ${globalAuctionState.products.length} products to ${discountPercent}% discount`);
   
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
   console.log(`Found ${validProducts.length} valid products with variants`);
+  
+  // Log unique product IDs for verification
+  console.log(`Product IDs: ${validProducts.slice(0, 5).map(p => p.id).join(', ')}${validProducts.length > 5 ? '...' : ''}`);
   
   if (validProducts.length === 0) {
     console.log('No valid products to update prices for.');
@@ -879,7 +983,10 @@ async function updateAllProductPrices(discountPercent) {
     console.error('All products failed to update. Giving up after one attempt to avoid infinite loop.');
   }
   
-  console.log(`Finished updating products to ${discountPercent}% discount`);
+  console.log(`!!! PRICE UPDATE OPERATION COMPLETED !!!`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Successfully updated products to ${discountPercent}% discount`);
+  console.log(`Next scheduled update: ${globalAuctionState.lastUpdateTime ? new Date(globalAuctionState.lastUpdateTime.getTime() + globalAuctionState.intervalMinutes * 60000).toISOString() : 'Not scheduled'}`);
 }
 
 // Helper function to reset all product prices to original
@@ -1172,18 +1279,31 @@ schedule.scheduleJob('* * * * *', async () => {
   try {
     console.log('=======================================================');
     console.log(`SCHEDULER: Running scheduled job at: ${formattedNow}`);
+    console.log('=======================================================');
     
     // First check the database for any scheduled auctions that should be started
     try {
+      console.log(`SCHEDULER: Checking database for scheduled auctions at ${formattedNow}`);
       const scheduledAuctions = await new Promise((resolve, reject) => {
         db.all('SELECT * FROM auctions WHERE is_active = 0 AND scheduled_start IS NOT NULL', (err, rows) => {
           if (err) {
             console.error('SCHEDULER: Error fetching scheduled auctions from database:', err);
             reject(err);
           } else {
+            console.log(`SCHEDULER: Database returned ${rows.length} scheduled auctions`);
             resolve(rows || []);
           }
         });
+      });
+      
+      // Log all database auctions for debugging
+      db.all('SELECT id, product_id, is_active, scheduled_start, reduction_percent FROM auctions', (err, allAuctions) => {
+        if (!err && allAuctions) {
+          console.log(`SCHEDULER: Total auctions in database: ${allAuctions.length}`);
+          allAuctions.forEach(a => {
+            console.log(`SCHEDULER: Auction #${a.id} - Product: ${a.product_id}, Active: ${a.is_active}, Scheduled: ${a.scheduled_start || 'None'}, Reduction: ${a.reduction_percent}%`);
+          });
+        }
       });
       
       if (scheduledAuctions.length > 0) {
@@ -1476,6 +1596,9 @@ app.post('/auctions/:id/delete', async (req, res) => {
 
 // Auction status API endpoint for storefront timers - updated with timezone support
 app.get('/api/auction-status', (req, res) => {
+  console.log('!!! API: /api/auction-status requested !!!');
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Request from: ${req.headers['user-agent'] || 'Unknown'}`);
   console.log('Auction status API called from:', req.headers.origin);
   
   // Check for scheduled start time
@@ -1804,8 +1927,9 @@ app.get('/api/scheduled-auctions', (req, res) => {
 // Add this new diagnostic API endpoint after the other routes
 app.get('/api/scheduled-auctions', async (req, res) => {
   try {
-    console.log('!!! CHECKING SCHEDULED AUCTIONS VIA API !!!');
-    console.log('=======================================================');
+    console.log('!!! API: /api/scheduled-auctions requested !!!');
+    console.log(`Timestamp: ${new Date().toISOString()}`);
+    console.log(`Request from: ${req.headers['user-agent'] || 'Unknown'}`);
     
     // Get scheduled auctions from database
     const scheduledAuctions = await new Promise((resolve, reject) => {
