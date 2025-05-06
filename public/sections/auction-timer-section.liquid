@@ -83,43 +83,6 @@
     const timerElement = document.getElementById('auction-timer');
     if (!timerElement) return;
     
-    // FOR DEBUGGING: Create a fake countdown timer
-    console.log('Auction Timer Debug: Setting up test countdown');
-    timerElement.style.display = 'block';
-    timerElement.querySelector('.discount-percent').textContent = '5';
-    
-    // Set a fake next update time 10 minutes from now
-    let testNextUpdateTime = new Date();
-    testNextUpdateTime.setMinutes(testNextUpdateTime.getMinutes() + 10);
-    
-    // Function to update the test countdown display
-    function updateTestCountdown() {
-      const now = new Date();
-      const timeRemaining = Math.max(0, testNextUpdateTime - now);
-      
-      // Calculate hours, minutes, seconds
-      const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
-      const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
-      
-      // Update timer display
-      timerElement.querySelector('.hours').textContent = hours.toString().padStart(2, '0');
-      timerElement.querySelector('.minutes').textContent = minutes.toString().padStart(2, '0');
-      timerElement.querySelector('.seconds').textContent = seconds.toString().padStart(2, '0');
-      
-      // If time has expired, reset countdown for demo purposes
-      if (timeRemaining <= 0) {
-        testNextUpdateTime = new Date();
-        testNextUpdateTime.setMinutes(testNextUpdateTime.getMinutes() + 10);
-      }
-    }
-    
-    // Start the test countdown
-    updateTestCountdown();
-    setInterval(updateTestCountdown, 1000);
-    
-    // Comment out the actual API call for now while we debug the timer UI
-    /*
     // The URL for your auction status API
     const statusUrl = 'https://reverse-auction.onrender.com/api/auction-status';
     
@@ -129,6 +92,7 @@
     // Function to fetch auction status
     async function fetchAuctionStatus() {
       try {
+        console.log('Fetching auction status from server...');
         const response = await fetch(statusUrl, {
           method: 'GET',
           headers: {
@@ -136,23 +100,27 @@
           },
           credentials: 'omit' // Don't send cookies for cross-origin requests
         });
+        
         if (!response.ok) {
           console.error('Error fetching auction status:', response.statusText);
           return false;
         }
         
         const data = await response.json();
+        console.log('Auction data received:', data);
         
         if (!data.isRunning) {
+          console.log('No active auction running');
           timerElement.style.display = 'none';
           return false;
         }
         
-        // Update timer display with current discount
+        // Update timer display with current discount percentage from server
         timerElement.querySelector('.discount-percent').textContent = data.currentDiscountPercent;
         
-        // Store the next update time
+        // Store the next update time from server
         nextUpdateTime = new Date(data.nextUpdateTime);
+        console.log('Next update time set to:', nextUpdateTime);
         
         // Show the timer
         timerElement.style.display = 'block';
@@ -160,7 +128,17 @@
         return true;
       } catch (error) {
         console.error('Error fetching auction status:', error);
-        return false;
+        
+        // For demo/debug only: If server fails, show a test timer
+        // Remove this block in production
+        console.log('Falling back to test timer');
+        timerElement.style.display = 'block';
+        if (!nextUpdateTime) {
+          nextUpdateTime = new Date();
+          nextUpdateTime.setMinutes(nextUpdateTime.getMinutes() + 10);
+        }
+        
+        return true;
       }
     }
     
@@ -209,7 +187,6 @@
     setInterval(function() {
       fetchAuctionStatus();
     }, 30000);
-    */
   });
   </script>
 </div>
