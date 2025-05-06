@@ -1,93 +1,553 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Shopify Product Manager</title>
+    <title>Shopify Auction Manager</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Add Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Add Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-        .product-card { border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
-        .error { color: #e74c3c; padding: 10px; background: #fde8e8; border-radius: 5px; margin: 10px 0; }
-        .empty-state { text-align: center; padding: 20px; color: #666; }
-        .action-button {
-            background: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin: 20px 0;
+        :root {
+            /* Color system */
+            --primary-color: #4361ee;
+            --primary-hover: #3a56d4;
+            --secondary-color: #4cc9f0;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --light-color: #f8f9fa;
+            --dark-color: #212529;
+            --gray-100: #f8f9fa;
+            --gray-200: #e9ecef;
+            --gray-300: #dee2e6;
+            --gray-400: #ced4da;
+            --gray-500: #adb5bd;
+            --gray-600: #6c757d;
+            --gray-700: #495057;
+            --gray-800: #343a40;
+            --gray-900: #212529;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+            --shadow-md: 0 4px 6px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 15px rgba(0,0,0,0.05), 0 4px 6px rgba(0,0,0,0.05);
+            
+            /* Border radius */
+            --border-radius-sm: 0.25rem;
+            --border-radius-md: 0.5rem;
+            --border-radius-lg: 0.75rem;
+            --border-radius-xl: 1rem;
+            
+            /* Spacing */
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
         }
-        .delete-button {
-            background: #e74c3c;
-            color: white;
-            padding: 5px 10px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
+        
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        .auction-form {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 5px;
-            margin: 20px 0;
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f5f7fb;
+            color: var(--gray-800);
+            line-height: 1.5;
+            padding: 0;
+            margin: 0;
         }
-        .auction-list {
-            margin-top: 20px;
+        
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: var(--spacing-md);
         }
-        .auction-item {
-            border: 1px solid #ddd;
-            padding: 15px;
-            margin-bottom: 10px;
-            border-radius: 5px;
-            background: #fff;
+        
+        /* Typography */
+        h1, h2, h3, h4, h5, h6 {
+            font-weight: 600;
+            line-height: 1.2;
+            margin-bottom: var(--spacing-md);
+            color: var(--gray-900);
         }
-        .button-group {
+        
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-lg);
+        }
+        
+        h2 {
+            font-size: 1.5rem;
+            margin-top: var(--spacing-lg);
+        }
+        
+        h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        p {
+            margin-bottom: var(--spacing-md);
+        }
+        
+        /* Card styles */
+        .card {
+            background-color: white;
+            border-radius: var(--border-radius-md);
+            box-shadow: var(--shadow-md);
+            padding: var(--spacing-lg);
+            margin-bottom: var(--spacing-lg);
+            border: 1px solid var(--gray-200);
+        }
+        
+        .card-title {
             display: flex;
-            gap: 10px;
-            margin: 20px 0;
+            align-items: center;
+            margin-bottom: var(--spacing-md);
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--gray-800);
+        }
+        
+        .card-title .material-icons-round {
+            margin-right: var(--spacing-sm);
+            color: var(--primary-color);
+        }
+        
+        /* Header */
+        .header {
+            background-color: white;
+            border-bottom: 1px solid var(--gray-200);
+            padding: var(--spacing-md) 0;
+            margin-bottom: var(--spacing-xl);
+        }
+        
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+        }
+        
+        .logo .material-icons-round {
+            margin-right: var(--spacing-xs);
+        }
+        
+        /* Button styles */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            font-size: 0.95rem;
+            font-weight: 500;
+            border-radius: var(--border-radius-md);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            border: 1px solid transparent;
+            gap: 0.5rem;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+            border-color: var(--primary-hover);
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+            border-color: var(--success-color);
+        }
+        
+        .btn-success:hover {
+            background-color: #27ae60;
+            border-color: #27ae60;
+        }
+        
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+            border-color: var(--danger-color);
+        }
+        
+        .btn-danger:hover {
+            background-color: #c0392b;
+            border-color: #c0392b;
+        }
+        
+        .btn-secondary {
+            background-color: var(--gray-100);
+            color: var(--gray-800);
+            border-color: var(--gray-300);
+        }
+        
+        .btn-secondary:hover {
+            background-color: var(--gray-200);
+            border-color: var(--gray-400);
+        }
+        
+        .btn-lg {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.85rem;
+            border-radius: var(--border-radius-sm);
+        }
+        
+        /* Utility classes */
+        .text-center { text-align: center; }
+        .text-primary { color: var(--primary-color); }
+        .text-success { color: var(--success-color); }
+        .text-danger { color: var(--danger-color); }
+        .text-warning { color: var(--warning-color); }
+        .text-muted { color: var(--gray-600); }
+        
+        .bg-light { background-color: var(--gray-100); }
+        .bg-primary { background-color: var(--primary-color); }
+        .bg-success { background-color: var(--success-color); }
+        .bg-danger { background-color: var(--danger-color); }
+        .bg-warning { background-color: var(--warning-color); }
+        
+        .font-weight-bold { font-weight: 700; }
+        .font-weight-semibold { font-weight: 600; }
+        .font-weight-medium { font-weight: 500; }
+        
+        .flex { display: flex; }
+        .flex-wrap { flex-wrap: wrap; }
+        .flex-column { flex-direction: column; }
+        .justify-content-between { justify-content: space-between; }
+        .justify-content-center { justify-content: center; }
+        .align-items-center { align-items: center; }
+        .gap-1 { gap: 0.25rem; }
+        .gap-2 { gap: 0.5rem; }
+        .gap-3 { gap: 1rem; }
+        .gap-4 { gap: 1.5rem; }
+        
+        .mb-1 { margin-bottom: 0.25rem; }
+        .mb-2 { margin-bottom: 0.5rem; }
+        .mb-3 { margin-bottom: 1rem; }
+        .mb-4 { margin-bottom: 1.5rem; }
+        .mb-5 { margin-bottom: 2rem; }
+        
+        .mt-1 { margin-top: 0.25rem; }
+        .mt-2 { margin-top: 0.5rem; }
+        .mt-3 { margin-top: 1rem; }
+        .mt-4 { margin-top: 1.5rem; }
+        .mt-5 { margin-top: 2rem; }
+        
+        .p-3 { padding: 1rem; }
+        .p-4 { padding: 1.5rem; }
+        
+        .rounded { border-radius: var(--border-radius-md); }
+        .border { border: 1px solid var(--gray-300); }
+        
+        .alert {
+            padding: var(--spacing-md);
+            border-radius: var(--border-radius-md);
+            margin-bottom: var(--spacing-lg);
+            border-left: 4px solid;
+        }
+        
+        .alert-success {
+            background-color: rgba(46, 204, 113, 0.1);
+            border-left-color: var(--success-color);
+            color: #1e8449;
+        }
+        
+        .alert-danger {
+            background-color: rgba(231, 76, 60, 0.1);
+            border-left-color: var(--danger-color);
+            color: #a93226;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: var(--spacing-lg);
+        }
+        
+        /* Existing styles (modified) below */
+        .product-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
+            gap: var(--spacing-lg); 
+        }
+        
+        .product-card { 
+            background-color: white;
+            border-radius: var(--border-radius-md);
+            box-shadow: var(--shadow-md);
+            padding: var(--spacing-lg);
+            border: 1px solid var(--gray-200);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .product-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .action-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.25rem;
+            font-size: 0.95rem;
+            font-weight: 500;
+            border-radius: var(--border-radius-md);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            border: none;
+            gap: 0.5rem;
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .action-button:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+        
+        .discount-badge {
+            padding: 1rem;
+            background-color: var(--gray-100);
+            border-radius: var(--border-radius-md);
+            min-width: 140px;
+            text-align: center;
+        }
+        
+        .discount-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--danger-color);
+        }
+        
+        .countdown-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        
+        .auction-status {
+            padding: 1rem;
+            background-color: var(--gray-100);
+            border-radius: var(--border-radius-md);
+            margin-bottom: 1rem;
+        }
+        
+        /* Form styles */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+        
+        .form-control, .form-select {
+            display: block;
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            color: var(--gray-900);
+            background-color: white;
+            background-clip: padding-box;
+            border: 1px solid var(--gray-300);
+            border-radius: var(--border-radius-md);
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            outline: 0;
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+        }
+        
+        .radio-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            margin-bottom: 0.5rem;
+        }
+        
+        .radio-option {
+            margin-bottom: 0.75rem;
+        }
+        
+        .radio-label input[type="radio"] {
+            margin-right: 0.5rem;
+        }
+        
+        /* Search */
+        .search-container {
+            position: relative;
+            margin-bottom: 1rem;
+        }
+        
+        .search-input {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 0.75rem 0.75rem 2.5rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            color: var(--gray-900);
+            background-color: white;
+            background-clip: padding-box;
+            border: 1px solid var(--gray-300);
+            border-radius: var(--border-radius-md);
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+        
+        .search-input:focus {
+            border-color: var(--primary-color);
+            outline: 0;
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+        }
+        
+        .search-icon {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--gray-500);
+        }
+        
+        /* Products */
+        .products-container {
+            max-height: 600px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        
+        .product-title {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .product-summary {
+            cursor: pointer;
+            color: var(--primary-color);
+            font-weight: 500;
+            padding: 0.5rem 0;
+        }
+        
+        .product-summary:hover {
+            color: var(--primary-hover);
+        }
+        
+        .variant-card {
+            padding: 0.75rem;
+            background-color: var(--gray-100);
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 0.5rem;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--gray-600);
         }
     </style>
 </head>
 <body>
+    <div class="header">
+        <div class="container header-content">
+            <a href="/" class="logo">
+                <span class="material-icons-round">shopping_cart</span>
+                Shopify Auction Manager
+            </a>
+        </div>
+    </div>
+    
     <div class="container">
-        <h1>Shopify Product Manager</h1>
-        
         <% if (error) { %>
-            <div class="error">
-                Error: <%= error %>
+            <div class="alert alert-danger">
+                <%= error %>
             </div>
         <% } %>
 
         <% if (message) { %>
-            <div style="background: #dff0d8; color: #3c763d; padding: 15px; border-radius: 5px; margin: 10px 0; font-weight: bold;">
+            <div class="alert alert-success">
                 <%= message %>
             </div>
         <% } %>
 
         <!-- -------- SCHEDULED AUCTIONS SECTION -------- -->
-        <div id="scheduledAuctionsSection" style="background: #e8f4fd; color: #2980b9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #3498db; margin-top: 20px;">
-            <h3 style="margin-top: 0;">📅 Scheduled Auctions</h3>
-            <div id="scheduledAuctionsLoading">Checking for scheduled auctions...</div>
-            <div id="scheduledAuctionsContent" style="display: none;">
-                <!-- Content will be loaded via JavaScript -->
+        <div class="card">
+            <div class="card-title">
+                <span class="material-icons-round">schedule</span>
+                Scheduled Auctions
             </div>
-            <div id="noScheduledAuctions" style="display: none; font-style: italic;">
-                No auctions currently scheduled.
-            </div>
-            <div style="margin-top: 10px;">
-                <button id="refreshScheduledAuctions" class="action-button" style="background: #2980b9; padding: 5px 10px; font-size: 0.9em;">
-                    Refresh Scheduled Auctions
-                </button>
-                <a href="/api/scheduled-auctions" target="_blank" style="margin-left: 10px; color: #2980b9; text-decoration: underline;">
-                    View Raw API Data
-                </a>
+            <div id="scheduledAuctionsSection">
+                <div id="scheduledAuctionsLoading" class="flex align-items-center gap-2">
+                    <span class="material-icons-round">sync</span>
+                    <span>Checking for scheduled auctions...</span>
+                </div>
+                <div id="scheduledAuctionsContent" style="display: none;">
+                    <!-- Content will be loaded via JavaScript -->
+                </div>
+                <div id="noScheduledAuctions" style="display: none; font-style: italic; color: var(--gray-600);">
+                    No auctions currently scheduled.
+                </div>
+                <div class="flex gap-2 mt-3">
+                    <button id="refreshScheduledAuctions" class="btn btn-secondary">
+                        <span class="material-icons-round" style="font-size: 18px;">refresh</span>
+                        Refresh Auctions
+                    </button>
+                    <a href="/api/scheduled-auctions" target="_blank" class="btn btn-secondary">
+                        <span class="material-icons-round" style="font-size: 18px;">data_object</span>
+                        View API Data
+                    </a>
+                </div>
             </div>
         </div>
 
         <% if (auctions && auctions.length > 0) { %>
-            <div style="background: #dff0d8; color: #3c763d; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-weight: bold;">
-                <h3>🔥 Auction in Progress</h3>
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons-round">local_fire_department</span>
+                    Auction in Progress
+                </div>
                 <% 
                 // Find the global auction
                 const globalAuction = auctions.find(a => a.product_id === 'global');
@@ -98,122 +558,191 @@
                     const minutes = Math.floor(timeUntilNextUpdate / 60);
                     const seconds = timeUntilNextUpdate % 60;
                 %>
-                    <p>Current discount: <span style="font-size: 1.2em; color: #c0392b;"><%= globalAuction.reduction_percent %>%</span></p>
-                    <p>Next price reduction in: <span id="countdown"><%= minutes %>m <%= seconds %>s</span></p>
-                    <p>Reduction rate: <%= globalAuction.reduction_percent %>% every <%= globalAuction.interval_minutes %> minute<%= globalAuction.interval_minutes > 1 ? 's' : '' %></p>
-                    <p>Auction ID: <%= globalAuction.id %></p>
-                    <p>Next update time: <%= new Date(globalAuction.next_update).toLocaleString() %></p>
+                <div class="auction-status">
+                    <div class="flex gap-4 mb-3">
+                        <div class="discount-badge">
+                            <div class="text-muted mb-1">Current Discount</div>
+                            <div class="discount-value"><%= globalAuction.reduction_percent %>%</div>
+                        </div>
+                        <div class="discount-badge">
+                            <div class="text-muted mb-1">Next Reduction In</div>
+                            <div class="countdown-value" id="countdown"><%= minutes %>m <%= seconds %>s</div>
+                        </div>
+                        <div class="discount-badge">
+                            <div class="text-muted mb-1">Reduction Rate</div>
+                            <div><%= globalAuction.reduction_percent %>% every <%= globalAuction.interval_minutes %> minute<%= globalAuction.interval_minutes > 1 ? 's' : '' %></div>
+                        </div>
+                    </div>
+                    <div class="auction-meta flex flex-wrap gap-2 text-muted" style="font-size: 0.9rem;">
+                        <div class="auction-meta-item flex align-items-center gap-1">
+                            <span class="material-icons-round" style="font-size: 16px;">tag</span>
+                            ID: <%= globalAuction.id %>
+                        </div>
+                        <div class="auction-meta-item flex align-items-center gap-1">
+                            <span class="material-icons-round" style="font-size: 16px;">update</span>
+                            Next Update: <%= new Date(globalAuction.next_update).toLocaleString() %>
+                        </div>
+                    </div>
+                </div>
                 <% } else { %>
                     <p>Auction is running for <%= auctions.length %> products.</p>
                 <% } %>
+                
+                <div class="mt-3">
+                    <form action="/stop-all-auctions" method="POST">
+                        <button type="submit" class="btn btn-danger">
+                            <span class="material-icons-round" style="font-size: 18px;">stop_circle</span>
+                            Stop All Auctions and Reset Prices
+                        </button>
+                    </form>
+                </div>
             </div>
-
-            <form action="/stop-all-auctions" method="POST">
-                <button type="submit" class="action-button" style="background: #e74c3c; margin-bottom: 20px;">
-                    STOP ALL AUCTIONS AND RESET PRICES
-                </button>
-            </form>
         <% } %>
 
-        <div class="button-group">
+        <div class="flex flex-wrap gap-2 mb-4">
             <form action="/set-compare-prices" method="POST">
-                <button type="submit" class="action-button">
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons-round" style="font-size: 18px;">price_change</span>
                     Set Compare At Price for All Products
                 </button>
             </form>
 
             <form action="/revert-all-prices" method="POST">
-                <button type="submit" class="action-button" style="background: #3498db;">
+                <button type="submit" class="btn btn-secondary">
+                    <span class="material-icons-round" style="font-size: 18px;">restore</span>
                     Revert All Prices to Original
                 </button>
             </form>
         </div>
 
-        <div class="auction-form">
-            <h2>Start Auction for All Products</h2>
-            <form action="/auctions/all" method="POST" style="display:inline-block; margin-right:10px;">
-                <div>
-                    <label for="interval">Interval (minutes):</label>
-                    <input type="number" name="interval" id="interval" min="1" value="1" required>
+        <div class="card">
+            <div class="card-title">
+                <span class="material-icons-round">rocket_launch</span>
+                Start Auction for All Products
+            </div>
+            <form action="/auctions/all" method="POST">
+                <div class="form-group mb-3">
+                    <label for="interval" class="form-label">Interval (minutes):</label>
+                    <input type="number" name="interval" id="interval" min="1" value="1" required class="form-control">
                 </div>
-                <div>
-                    <label for="reductionPercent">Reduction Percent:</label>
-                    <input type="number" name="reductionPercent" id="reductionPercent" min="1" max="100" value="5" required>
+                <div class="form-group mb-4">
+                    <label for="reductionPercent" class="form-label">Reduction Percent:</label>
+                    <input type="number" name="reductionPercent" id="reductionPercent" min="1" max="100" value="5" required class="form-control">
                 </div>
                 
                 <!-- Scheduling options -->
-                <div style="margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px;">
-                    <div style="margin-bottom: 10px;">
-                        <label style="display: flex; align-items: center;">
+                <div class="card bg-light p-3 mb-4">
+                    <h4 class="mb-3 font-weight-medium">Start Options</h4>
+                    <div class="radio-option mb-2">
+                        <label class="radio-label">
                             <input type="radio" name="startOption" value="immediate" id="startImmediate" checked> 
-                            <span style="margin-left: 5px;">Start immediately</span>
+                            <span>Start auction immediately</span>
                         </label>
                     </div>
-                    <div>
-                        <label style="display: flex; align-items: center;">
+                    <div class="radio-option">
+                        <label class="radio-label">
                             <input type="radio" name="startOption" value="scheduled" id="startScheduled"> 
-                            <span style="margin-left: 5px; font-weight: bold;">Schedule start time</span>
+                            <span>Schedule for later</span>
                         </label>
                     </div>
+                    
+                    <div id="scheduleOptions" class="mt-3" style="display: none;">
+                        <div class="form-group mb-3">
+                            <label for="scheduledTime" class="form-label">Start Time:</label>
+                            <input type="datetime-local" name="scheduledTime" id="scheduledTime" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="timezone" class="form-label">Timezone:</label>
+                            <select name="timezone" id="timezone" class="form-select">
+                                <option value="CET" selected>Central European Time (CET)</option>
+                                <option value="Europe/Paris">Paris</option>
+                                <option value="Europe/Berlin">Berlin</option>
+                                <option value="Europe/London">London</option>
+                                <option value="America/New_York">New York</option>
+                                <option value="America/Los_Angeles">Los Angeles</option>
+                                <option value="Asia/Tokyo">Tokyo</option>
+                                <option value="Australia/Sydney">Sydney</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
                 
-                <div id="scheduleOptions" style="display: none; margin-top: 10px; padding: 10px; background: #f9f9f9; border-radius: 4px;">
-                    <div>
-                        <label for="scheduledTime">Start Time (in selected timezone):</label>
-                        <input type="datetime-local" name="scheduledTime" id="scheduledTime">
-                    </div>
-                    <div style="margin-top: 10px;">
-                        <label for="timezone">Timezone:</label>
-                        <select name="timezone" id="timezone">
-                            <option value="CET" selected>Central European Time (CET)</option>
-                            <option value="Europe/Paris">Paris</option>
-                            <option value="Europe/Berlin">Berlin</option>
-                            <option value="Europe/London">London</option>
-                            <option value="America/New_York">New York</option>
-                            <option value="America/Los_Angeles">Los Angeles</option>
-                            <option value="Asia/Tokyo">Tokyo</option>
-                            <option value="Australia/Sydney">Sydney</option>
-                        </select>
-                    </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <span class="material-icons-round" style="font-size: 18px;">play_arrow</span>
+                        Start Auction
+                    </button>
+                    <a href="javascript:void(0)" onclick="document.getElementById('stopForm').submit();" class="btn btn-danger">
+                        <span class="material-icons-round" style="font-size: 18px;">stop</span>
+                        Stop Auction
+                    </a>
                 </div>
-                
-                <button type="submit" class="action-button" style="margin-top: 15px;">Start Auction for All Products</button>
             </form>
-            <form action="/stop-all-auctions" method="POST" style="display:inline-block;">
-                <button type="submit" class="action-button" style="background:#e74c3c;">Stop Auction for All Products</button>
-            </form>
+            <form id="stopForm" action="/stop-all-auctions" method="POST" style="display:none;"></form>
         </div>
 
-        <div class="product-grid">
-            <h2>All Products (<%= products.length %>)</h2>
-            <input type="text" id="productSearch" placeholder="Search products..." style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px;">
-            <div style="height: 600px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 4px;">
+        <div class="card">
+            <div class="card-title">
+                <span class="material-icons-round">inventory</span>
+                Products (<%= products.length %>)
+            </div>
+            
+            <div class="mb-3">
+                <div class="search-container">
+                    <span class="material-icons-round search-icon">search</span>
+                    <input type="text" id="productSearch" placeholder="Search products..." class="search-input">
+                </div>
+            </div>
+            
+            <div class="products-container">
                 <% if (products && products.length > 0) { %>
-                    <% products.forEach(function(product) { %>
-                        <div class="product-card product-item" data-title="<%= product.title.toLowerCase() %>">
-                            <h3><%= product.title %></h3>
-                            <p>ID: <%= product.id %></p>
-                            <p><strong>Variants: </strong><%= product.variants.length %></p>
-                            <details>
-                                <summary>Show Variants</summary>
-                                <% product.variants.forEach(function(variant) { %>
-                                    <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                                        <p>Variant ID: <%= variant.id %></p>
-                                        <p>Price: $<%= variant.price %></p>
-                                        <p>Compare at: <%= variant.compare_at_price || 'Not set' %></p>
+                    <div class="product-grid">
+                        <% products.forEach(function(product) { %>
+                            <div class="product-card product-item" data-title="<%= product.title.toLowerCase() %>">
+                                <h3 class="product-title"><%= product.title %></h3>
+                                <div class="product-meta flex flex-column gap-1 mb-3">
+                                    <div class="product-id text-muted">ID: <%= product.id %></div>
+                                    <div class="product-variants"><strong>Variants:</strong> <%= product.variants.length %></div>
+                                </div>
+                                <details class="product-details">
+                                    <summary class="product-summary">View Variants</summary>
+                                    <div class="variants-list mt-2">
+                                        <% product.variants.forEach(function(variant) { %>
+                                            <div class="variant-card">
+                                                <div class="variant-id text-muted">ID: <%= variant.id %></div>
+                                                <div class="variant-price"><strong>Price:</strong> $<%= variant.price %></div>
+                                                <div class="variant-compare">
+                                                    <strong>Compare at:</strong> 
+                                                    <% if (variant.compare_at_price) { %>
+                                                        $<%= variant.compare_at_price %>
+                                                    <% } else { %>
+                                                        <span class="text-muted">Not set</span>
+                                                    <% } %>
+                                                </div>
+                                            </div>
+                                        <% }); %>
                                     </div>
-                                <% }); %>
-                            </details>
-                        </div>
-                    <% }); %>
+                                </details>
+                            </div>
+                        <% }); %>
+                    </div>
                 <% } else { %>
                     <div class="empty-state">
-                        No products available. Please add products to your Shopify store first.
+                        <span class="material-icons-round" style="font-size: 48px; opacity: 0.2;">inventory_2</span>
+                        <p>No products available. Please add products to your Shopify store first.</p>
                     </div>
                 <% } %>
             </div>
         </div>
     </div>
+
+    <footer class="footer mt-5">
+        <div class="container">
+            <div class="footer-content">
+                <p class="text-muted text-center">© <%= new Date().getFullYear() %> Shopify Auction Manager</p>
+            </div>
+        </div>
+    </footer>
 
     <script>
         // Simple product search
@@ -247,7 +776,8 @@
                 
                 if (remainingSeconds <= 0) {
                     clearInterval(countdownInterval);
-                    countdownElement.textContent = "Updating prices...";
+                    countdownElement.textContent = "Updating...";
+                    countdownElement.classList.add('pulse-animation');
                     // Auto-refresh after a short delay to see the updated prices
                     setTimeout(() => {
                         window.location.reload();
@@ -303,7 +833,7 @@
             const contentEl = document.getElementById('scheduledAuctionsContent');
             const noScheduledEl = document.getElementById('noScheduledAuctions');
             
-            loadingEl.style.display = 'block';
+            loadingEl.style.display = 'flex';
             contentEl.style.display = 'none';
             noScheduledEl.style.display = 'none';
             
@@ -317,38 +847,47 @@
                         contentEl.style.display = 'block';
                         
                         // Create HTML for each scheduled auction
-                        let html = '<ul style="list-style: none; padding: 0;">';
+                        let html = '';
                         
                         data.scheduledAuctions.forEach(auction => {
                             const now = new Date();
                             const scheduledTime = new Date(auction.scheduled_start);
                             const isInPast = scheduledTime < now;
-                            const statusColor = isInPast ? "#e74c3c" : "#27ae60";
+                            const statusColor = isInPast ? "danger" : "success";
+                            const statusIcon = isInPast ? "pending" : "event_available";
                             const statusText = isInPast ? "Pending execution" : "Scheduled";
                             
                             html += `
-                                <li style="border: 1px solid #bdc3c7; padding: 10px; margin-bottom: 10px; border-radius: 4px; background: #f8f9fa;">
-                                    <div style="font-weight: bold; display: flex; justify-content: space-between;">
-                                        <span>Auction #${auction.id}</span>
-                                        <span style="color: ${statusColor};">${statusText}</span>
+                                <div class="scheduled-auction-card">
+                                    <div class="auction-header">
+                                        <div class="auction-number">Auction #${auction.id}</div>
+                                        <div class="auction-status text-${statusColor}">
+                                            <span class="material-icons-round" style="font-size: 16px;">${statusIcon}</span>
+                                            ${statusText}
+                                        </div>
                                     </div>
-                                    <div>
-                                        <strong>Start time:</strong> ${auction.formatted_scheduled_start}
+                                    <div class="auction-details">
+                                        <div class="detail-item">
+                                            <div class="detail-label">Start Time</div>
+                                            <div class="detail-value">${auction.formatted_scheduled_start}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Reduction</div>
+                                            <div class="detail-value">${auction.reduction_percent}% every ${auction.interval_minutes} minute(s)</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Time Until Start</div>
+                                            <div class="detail-value">${auction.time_until_start}</div>
+                                        </div>
+                                        <div class="detail-item">
+                                            <div class="detail-label">Status</div>
+                                            <div class="detail-value">${auction.is_active ? 'Active' : 'Waiting to start'}</div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <strong>Reduction:</strong> ${auction.reduction_percent}% every ${auction.interval_minutes} minute(s)
-                                    </div>
-                                    <div>
-                                        <strong>Time until start:</strong> ${auction.time_until_start}
-                                    </div>
-                                    <div>
-                                        <strong>Status:</strong> ${auction.is_active ? 'Active' : 'Waiting to start'}
-                                    </div>
-                                </li>
+                                </div>
                             `;
                         });
                         
-                        html += '</ul>';
                         contentEl.innerHTML = html;
                     } else {
                         noScheduledEl.style.display = 'block';
@@ -356,7 +895,10 @@
                 })
                 .catch(error => {
                     console.error('Error loading scheduled auctions:', error);
-                    loadingEl.textContent = 'Error loading scheduled auctions. Please try again.';
+                    loadingEl.innerHTML = `
+                        <span class="material-icons-round text-danger">error</span>
+                        <span>Error loading scheduled auctions. Please try again.</span>
+                    `;
                 });
         }
         
@@ -371,5 +913,98 @@
             }
         });
     </script>
+
+    <style>
+        /* Footer styles */
+        .footer {
+            background-color: white;
+            border-top: 1px solid var(--gray-200);
+            padding: var(--spacing-lg) 0;
+            margin-top: auto;
+        }
+        
+        /* Scheduled Auction Cards */
+        .scheduled-auction-card {
+            background-color: white;
+            border-radius: var(--border-radius-md);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--gray-200);
+            margin-bottom: var(--spacing-md);
+            overflow: hidden;
+        }
+        
+        .auction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background-color: var(--gray-100);
+            border-bottom: 1px solid var(--gray-200);
+        }
+        
+        .auction-number {
+            font-weight: 600;
+        }
+        
+        .auction-status {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+        
+        .auction-details {
+            padding: 1rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .detail-label {
+            font-size: 0.85rem;
+            color: var(--gray-600);
+            margin-bottom: 0.25rem;
+        }
+        
+        .detail-value {
+            font-weight: 500;
+        }
+        
+        /* Animation */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .pulse-animation {
+            animation: pulse 1s infinite;
+        }
+        
+        /* Scrollbar styling */
+        .products-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .products-container::-webkit-scrollbar-track {
+            background: var(--gray-100);
+            border-radius: 10px;
+        }
+        
+        .products-container::-webkit-scrollbar-thumb {
+            background: var(--gray-400);
+            border-radius: 10px;
+        }
+        
+        .products-container::-webkit-scrollbar-thumb:hover {
+            background: var(--gray-500);
+        }
+    </style>
 </body>
 </html> 
