@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shopify Product Manager</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .product-card { border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
+        .error { color: #e74c3c; padding: 10px; background: #fde8e8; border-radius: 5px; margin: 10px 0; }
+        .empty-state { text-align: center; padding: 20px; color: #666; }
+        .action-button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        .delete-button {
+            background: #e74c3c;
+            color: white;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .auction-form {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .auction-list {
+            margin-top: 20px;
+        }
+        .auction-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background: #fff;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Shopify Product Manager</h1>
+        
+        <% if (error) { %>
+            <div class="error">
+                Error: <%= error %>
+            </div>
+        <% } %>
+
+        <% if (message) { %>
+            <div style="background: #dff0d8; color: #3c763d; padding: 15px; border-radius: 5px; margin: 10px 0; font-weight: bold;">
+                <%= message %>
+            </div>
+        <% } %>
+
+        <% if (auctions && auctions.length > 0) { %>
+            <div style="background: #dff0d8; color: #3c763d; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-weight: bold;">
+                <h3>🔥 Auction in Progress</h3>
+                <% 
+                // Find the global auction
+                const globalAuction = auctions.find(a => a.product_id === 'global');
+                if (globalAuction) {
+                    const nextUpdate = new Date(globalAuction.next_update);
+                    const now = new Date();
+                    const timeUntilNextUpdate = Math.max(0, Math.floor((nextUpdate - now) / 1000));
+                    const minutes = Math.floor(timeUntilNextUpdate / 60);
+                    const seconds = timeUntilNextUpdate % 60;
+                %>
+                    <p>Current discount: <span style="font-size: 1.2em; color: #c0392b;"><%= globalAuction.reduction_percent %>%</span></p>
+                    <p>Next price reduction in: <span id="countdown"><%= minutes %>m <%= seconds %>s</span></p>
+                    <p>Reduction rate: <%= globalAuction.reduction_percent %>% every <%= globalAuction.interval_minutes %> minute<%= globalAuction.interval_minutes > 1 ? 's' : '' %></p>
+                <% } else { %>
+                    <p>Auction is running for <%= auctions.length %> products.</p>
+                <% } %>
+            </div>
+
+            <form action="/stop-all-auctions" method="POST">
+                <button type="submit" class="action-button" style="background: #e74c3c; margin-bottom: 20px;">
+                    STOP ALL AUCTIONS AND RESET PRICES
+                </button>
+            </form>
+        <% } %>
+
+        <div class="button-group">
+            <form action="/set-compare-prices" method="POST">
+                <button type="submit" class="action-button">
+                    Set Compare At Price for All Products
+                </button>
+            </form>
+
+            <form action="/revert-all-prices" method="POST">
+                <button type="submit" class="action-button" style="background: #3498db;">
+                    Revert All Prices to Original
+                </button>
+            </form>
+        </div>
+
+        <div class="auction-form">
+            <h2>Start Auction for All Products</h2>
+            <form action="/auctions/all" method="POST" style="display:inline-block; margin-right:10px;">
+                <div>
+                    <label for="interval">Interval (minutes):</label>
+                    <input type="number" name="interval" id="interval" min="1" value="1" required>
+                </div>
+                <div>
+                    <label for="reductionPercent">Reduction Percent:</label>
+                    <input type="number" name="reductionPercent" id="reductionPercent" min="1" max="100" value="5" required>
+                </div>
+                <button type="submit" class="action-button">Start Auction for All Products</button>
+            </form>
+            <form action="/stop-all-auctions" method="POST" style="display:inline-block;">
+                <button type="submit" class="action-button" style="background:#e74c3c;">Stop Auction for All Products</button>
+            </form>
+        </div>
+
+        <div class="product-grid">
+            <h2>All Products (<%= products.length %>)</h2>
+            <input type="text" id="productSearch" placeholder="Search products..." style="width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px;">
+            <div style="height: 600px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 4px;">
+                <% if (products && products.length > 0) { %>
+                    <% products.forEach(function(product) { %>
+                        <div class="product-card product-item" data-title="<%= product.title.toLowerCase() %>">
+                            <h3><%= product.title %></h3>
+                            <p>ID: <%= product.id %></p>
+                            <p><strong>Variants: </strong><%= product.variants.length %></p>
+                            <details>
+                                <summary>Show Variants</summary>
+                                <% product.variants.forEach(function(variant) { %>
+                                    <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                                        <p>Variant ID: <%= variant.id %></p>
+                                        <p>Price: $<%= variant.price %></p>
+                                        <p>Compare at: <%= variant.compare_at_price || 'Not set' %></p>
+                                    </div>
+                                <% }); %>
+                            </details>
+                        </div>
+                    <% }); %>
+                <% } else { %>
+                    <div class="empty-state">
+                        No products available. Please add products to your Shopify store first.
+                    </div>
+                <% } %>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple product search
+        document.getElementById('productSearch').addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            document.querySelectorAll('.product-item').forEach(item => {
+                const title = item.getAttribute('data-title');
+                if (title.includes(searchTerm)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+        
+        // Countdown timer
+        const countdownElement = document.getElementById('countdown');
+        if (countdownElement) {
+            let initialText = countdownElement.textContent;
+            let minutesPart = initialText.match(/(\d+)m/);
+            let secondsPart = initialText.match(/(\d+)s/);
+            
+            let minutes = minutesPart ? parseInt(minutesPart[1]) : 0;
+            let seconds = secondsPart ? parseInt(secondsPart[1]) : 0;
+            
+            const totalSeconds = minutes * 60 + seconds;
+            let remainingSeconds = totalSeconds;
+            
+            const countdownInterval = setInterval(() => {
+                remainingSeconds -= 1;
+                
+                if (remainingSeconds <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownElement.textContent = "Updating prices...";
+                    // Auto-refresh after a short delay to see the updated prices
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    const displayMinutes = Math.floor(remainingSeconds / 60);
+                    const displaySeconds = remainingSeconds % 60;
+                    countdownElement.textContent = `${displayMinutes}m ${displaySeconds}s`;
+                }
+            }, 1000);
+        }
+    </script>
+</body>
+</html> 

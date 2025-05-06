@@ -1,0 +1,23 @@
+{%- comment -%}
+  Auction Timer Section
+  
+  This section can be added to any page in your Shopify theme.
+  It displays a countdown to the next price drop in the auction.
+{%- endcomment -%}
+
+<div class="auction-timer-section">
+  {% render 'auction-timer' %}
+</div>
+
+{% schema %}
+{
+  "name": "Auction Timer",
+  "settings": [],
+  "presets": [
+    {
+      "name": "Auction Timer",
+      "category": "Custom"
+    }
+  ]
+}
+{% endschema %} 
