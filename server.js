@@ -28,6 +28,33 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true }));
 
+// Add CORS middleware for Shopify store requests
+app.use((req, res, next) => {
+  // Allow requests from the Shopify store domain
+  const shopifyDomain = process.env.SHOPIFY_SHOP_URL || '';
+  const allowedOrigins = [
+    `https://${shopifyDomain}`,
+    `https://admin.shopify.com`,
+    'https://localhost:3000'
+  ];
+  
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
+
 // Initialize SQLite database
 const db = new sqlite3.Database('auctions.db', (err) => {
   if (err) {

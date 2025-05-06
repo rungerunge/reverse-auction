@@ -88,10 +88,8 @@ document.addEventListener('DOMContentLoaded', function() {
   const timerElement = document.getElementById('auction-timer');
   if (!timerElement) return;
   
-  // The URL for your auction status API
-  // You need to replace this with your actual Shopify app proxy URL
-  // Example: /apps/auction-timer/api/auction-status
-  const statusUrl = '/api/auction-status';
+  // Replace with direct call to Render.com server
+  const statusUrl = 'https://reverse-auction.onrender.com/api/auction-status';
   
   let countdown;
   let nextUpdateTime;
@@ -99,7 +97,13 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to fetch auction status
   async function fetchAuctionStatus() {
     try {
-      const response = await fetch(statusUrl);
+      const response = await fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'omit' // Don't send cookies for cross-origin requests
+      });
       if (!response.ok) {
         console.error('Error fetching auction status:', response.statusText);
         return false;
