@@ -83,7 +83,12 @@
     const timerElement = document.getElementById('auction-timer');
     if (!timerElement) return;
     
-    // Replace with direct call to Render.com server
+    // FOR DEBUGGING: Show timer regardless of auction status
+    console.log('Auction Timer Debug: Timer element found, making visible for testing');
+    timerElement.style.display = 'block';
+    timerElement.querySelector('.discount-percent').textContent = '5';
+    
+    // The URL for your auction status API
     const statusUrl = 'https://reverse-auction.onrender.com/api/auction-status';
     
     let countdown;
