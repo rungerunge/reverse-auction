@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reverse Auction Timer Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.5;
+      color: #333;
+    }
+    
+    h1, h2, h3 {
+      color: #333;
+    }
+    
+    .test-container {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 30px;
+      background-color: #f9f9f9;
+    }
+    
+    .info-box {
+      background-color: #e9f7fd;
+      border: 1px solid #a9d5e2;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 15px 0;
+      color: #0c5460;
+    }
+    
+    .control-panel {
+      background-color: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 20px;
+      margin-bottom: 30px;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    
+    input, select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 5px;
+    }
+    
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    
+    button:hover {
+      background-color: #45a049;
+    }
+    
+    .code-box {
+      background: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin: 15px 0;
+      font-family: monospace;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 14px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    /* Timer Styles */
+    .reverse-auction-timer {
+      background: #f8f8f8;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 20px;
+      margin: 20px 0;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .reverse-auction-timer__title {
+      font-size: 22px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 10px;
+      margin-top: 0;
+    }
+    
+    .reverse-auction-timer__discount-container {
+      margin-bottom: 15px;
+    }
+    
+    .reverse-auction-timer__discount {
+      font-size: 24px;
+      font-weight: bold;
+      color: #e74c3c;
+      margin-bottom: 5px;
+    }
+    
+    .reverse-auction-timer__next-discount {
+      font-size: 14px;
+      color: #e74c3c;
+      opacity: 0.8;
+      margin-bottom: 10px;
+    }
+    
+    .reverse-auction-timer__countdown {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .reverse-auction-timer__label {
+      font-size: 14px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .reverse-auction-timer__time {
+      font-family: monospace;
+      font-size: 20px;
+      font-weight: bold;
+      background: #333;
+      color: #fff;
+      padding: 8px 15px;
+      border-radius: 4px;
+      letter-spacing: 2px;
+      min-width: 120px;
+      display: inline-block;
+    }
+    
+    .reverse-auction-timer__message {
+      font-size: 14px;
+      color: #666;
+      margin-top: 15px;
+    }
+    
+    .reverse-auction-timer__status {
+      margin-top: 10px;
+      font-size: 0.8em;
+      color: #666;
+    }
+    
+    @media (min-width: 768px) {
+      .reverse-auction-timer__countdown {
+        flex-direction: row;
+      }
+      
+      .reverse-auction-timer__label {
+        margin-bottom: 0;
+        margin-right: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Reverse Auction Timer Test</h1>
+  
+  <div class="info-box">
+    <p>This page allows you to test the Reverse Auction Timer before adding it to your Shopify theme. Configure the settings below and click "Apply" to see how the timer will look and function.</p>
+    <p><strong>Browser Time:</strong> <span id="browser-time"></span></p>
+  </div>
+  
+  <div class="control-panel">
+    <h2>Timer Configuration</h2>
+    
+    <div class="form-group">
+      <label for="timer-title">Timer Title</label>
+      <input type="text" id="timer-title" value="Limited Time Offer">
+      <label for="show-title">
+        <input type="checkbox" id="show-title" checked> Show Title
+      </label>
+    </div>
+    
+    <h3>Schedule Settings</h3>
+    <div class="form-group">
+      <label for="start-date">Start Date (YYYY-MM-DD or "today")</label>
+      <input type="text" id="start-date" value="today">
+    </div>
+    
+    <div class="form-group">
+      <label for="start-hour">Start Hour</label>
+      <select id="start-hour">
+        <option value="0">00:00 (12 AM)</option>
+        <option value="1">01:00 (1 AM)</option>
+        <option value="2">02:00 (2 AM)</option>
+        <option value="3">03:00 (3 AM)</option>
+        <option value="4">04:00 (4 AM)</option>
+        <option value="5">05:00 (5 AM)</option>
+        <option value="6">06:00 (6 AM)</option>
+        <option value="7">07:00 (7 AM)</option>
+        <option value="8">08:00 (8 AM)</option>
+        <option value="9" selected>09:00 (9 AM)</option>
+        <option value="10">10:00 (10 AM)</option>
+        <option value="11">11:00 (11 AM)</option>
+        <option value="12">12:00 (12 PM)</option>
+        <option value="13">13:00 (1 PM)</option>
+        <option value="14">14:00 (2 PM)</option>
+        <option value="15">15:00 (3 PM)</option>
+        <option value="16">16:00 (4 PM)</option>
+        <option value="17">17:00 (5 PM)</option>
+        <option value="18">18:00 (6 PM)</option>
+        <option value="19">19:00 (7 PM)</option>
+        <option value="20">20:00 (8 PM)</option>
+        <option value="21">21:00 (9 PM)</option>
+        <option value="22">22:00 (10 PM)</option>
+        <option value="23">23:00 (11 PM)</option>
+      </select>
+    </div>
+    
+    <div class="form-group">
+      <label for="start-minute">Start Minute</label>
+      <select id="start-minute">
+        <option value="0" selected>00</option>
+        <option value="5">05</option>
+        <option value="10">10</option>
+        <option value="15">15</option>
+        <option value="20">20</option>
+        <option value="25">25</option>
+        <option value="30">30</option>
+        <option value="35">35</option>
+        <option value="40">40</option>
+        <option value="45">45</option>
+        <option value="50">50</option>
+        <option value="55">55</option>
+      </select>
+    </div>
+    
+    <h3>Discount Settings</h3>
+    <div class="form-group">
+      <label for="starting-discount">Starting Discount Percentage</label>
+      <input type="number" id="starting-discount" min="0" max="100" value="5">
+    </div>
+    
+    <div class="form-group">
+      <label for="interval-minutes">Interval Between Discounts (minutes)</label>
+      <input type="number" id="interval-minutes" min="1" max="60" value="1">
+    </div>
+    
+    <div class="form-group">
+      <label for="discount-increment">Discount Increment Per Interval</label>
+      <input type="number" id="discount-increment" min="1" max="20" value="5">
+    </div>
+    
+    <div class="form-group">
+      <label for="max-discount">Maximum Discount Percentage</label>
+      <input type="number" id="max-discount" min="5" max="100" value="50">
+    </div>
+    
+    <div class="form-group">
+      <label for="show-next-discount">
+        <input type="checkbox" id="show-next-discount" checked> Show Next Discount Level
+      </label>
+    </div>
+    
+    <h3>Text Settings</h3>
+    <div class="form-group">
+      <label for="countdown-text">Countdown Label</label>
+      <input type="text" id="countdown-text" value="Next price drop in:">
+    </div>
+    
+    <div class="form-group">
+      <label for="start-countdown-text">Start Countdown Label</label>
+      <input type="text" id="start-countdown-text" value="Auction starts in:">
+    </div>
+    
+    <div class="form-group">
+      <label for="completed-text">Text When Maximum Discount Reached</label>
+      <input type="text" id="completed-text" value="MAX DISCOUNT REACHED!">
+    </div>
+    
+    <div class="form-group">
+      <label for="show-debug">
+        <input type="checkbox" id="show-debug"> Show Debug Information
+      </label>
+    </div>
+    
+    <button id="apply-settings">Apply Settings</button>
+  </div>
+  
+  <div class="test-container">
+    <h2>Timer Preview</h2>
+    
+    <div class="reverse-auction-timer" id="reverse-auction-timer">
+      <div class="reverse-auction-timer__content">
+        <h3 class="reverse-auction-timer__title" id="preview-title">Limited Time Offer</h3>
+        
+        <div class="reverse-auction-timer__discount-container">
+          <div class="reverse-auction-timer__discount">
+            <span id="current-discount">5</span>% OFF
+          </div>
+          
+          <div class="reverse-auction-timer__next-discount" id="next-discount-container">
+            <span id="next-discount-label">Next: </span>
+            <span id="next-discount">10</span>% OFF
+          </div>
+        </div>
+        
+        <div class="reverse-auction-timer__countdown">
+          <span class="reverse-auction-timer__label" id="countdown-label">Next price drop in:</span>
+          <div class="reverse-auction-timer__time" id="countdown-wrapper">
+            <span id="countdown">00:00:00</span>
+          </div>
+        </div>
+        
+        <div class="reverse-auction-timer__status" id="timer-status" style="display: none;">
+          <!-- Status messages will appear here -->
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="test-container">
+    <h2>How to Use This Timer</h2>
+    <p>To add this timer to your Shopify theme:</p>
+    <ol>
+      <li>Test the timer configuration on this page until you are satisfied with the behavior</li>
+      <li>Follow the installation instructions in the documentation</li>
+      <li>Configure the same settings in your Shopify theme editor</li>
+    </ol>
+    <p>Remember that this timer works client-side only and doesn't actually change product prices. To automatically update prices, you'll need to use the server-side auction functionality.</p>
+  </div>
+  
+  <script>
+    // Display system information
+    function updateSystemInfo() {
+      const now = new Date();
+      document.getElementById('browser-time').textContent = now.toString();
+    }
+    
+    // Update every second
+    updateSystemInfo();
+    setInterval(updateSystemInfo, 1000);
+    
+    // Format time as HH:MM:SS
+    function formatTime(hours, minutes, seconds) {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    
+    // Get timer elements
+    const timerElement = document.getElementById('reverse-auction-timer');
+    const titleElement = document.getElementById('preview-title');
+    const currentDiscountElement = document.getElementById('current-discount');
+    const nextDiscountElement = document.getElementById('next-discount');
+    const nextDiscountContainer = document.getElementById('next-discount-container');
+    const countdownElement = document.getElementById('countdown');
+    const countdownLabel = document.getElementById('countdown-label');
+    const statusElement = document.getElementById('timer-status');
+    
+    // Timer settings
+    let settings = {
+      showTitle: true,
+      timerTitle: "Limited Time Offer",
+      startDate: "today",
+      startHour: 9,
+      startMinute: 0,
+      startingDiscount: 5,
+      intervalMinutes: 1,
+      discountIncrement: 5,
+      maxDiscount: 50,
+      showNextDiscount: true,
+      countdownText: "Next price drop in:",
+      startCountdownText: "Auction starts in:",
+      completedText: "MAX DISCOUNT REACHED!",
+      showDebug: false
+    };
+    
+    // Flag to track if the countdown has already completed
+    let hasCompleted = false;
+    let timerInterval = null;
+    
+    // Display a debug message
+    function debug(message) {
+      if (settings.showDebug && statusElement) {
+        statusElement.style.display = 'block';
+        statusElement.textContent = message;
+      } else {
+        statusElement.style.display = 'none';
+      }
+    }
+    
+    // Convert the configured date and time to a Date object
+    function getStartTime() {
+      try {
+        if (!settings.startDate || settings.startDate === "" || settings.startDate === "today") {
+          // If no date provided or set to "today", use today's date
+          const today = new Date();
+          debug(`Using today's date with time ${settings.startHour}:${settings.startMinute}`);
+          return new Date(today.getFullYear(), today.getMonth(), today.getDate(), settings.startHour, settings.startMinute, 0);
+        } else {
+          // Parse date components
+          const [year, month, day] = settings.startDate.split('-').map(Number);
+          
+          if (!year || !month || !day) {
+            throw new Error('Invalid date format');
+          }
+          
+          // Create date object
+          const date = new Date(year, month - 1, day, settings.startHour, settings.startMinute, 0);
+          debug(`Using start date: ${date.toString()}`);
+          
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date');
+          }
+          
+          return date;
+        }
+      } catch (error) {
+        debug(`Error parsing start time: ${error.message}. Using current time.`);
+        return new Date(); // Return current time as fallback
+      }
+    }
+    
+    // Calculate current discount and time until next discount
+    function calculateState() {
+      const now = new Date();
+      const startTime = getStartTime();
+      
+      // If auction hasn't started yet
+      if (now < startTime) {
+        return {
+          started: false,
+          currentDiscount: 0,
+          nextDiscount: settings.startingDiscount,
+          nextUpdateTime: startTime,
+          completed: false,
+          message: "Auction hasn't started yet"
+        };
+      }
+      
+      // Calculate elapsed time in milliseconds
+      const elapsed = now - startTime;
+      const intervalMs = settings.intervalMinutes * 60 * 1000;
+      
+      // Calculate intervals elapsed
+      const intervalsElapsed = Math.floor(elapsed / intervalMs);
+      
+      // Calculate current discount percentage
+      const currentDiscount = Math.min(settings.startingDiscount + (intervalsElapsed * settings.discountIncrement), settings.maxDiscount);
+      
+      // Calculate next discount (if not at max)
+      const nextDiscount = Math.min(currentDiscount + settings.discountIncrement, settings.maxDiscount);
+      
+      // Calculate time until next interval
+      const timeToNextInterval = intervalsElapsed === 0 ? 
+        intervalMs : // First interval
+        intervalMs - (elapsed % intervalMs); // Subsequent intervals
+        
+      const nextUpdateTime = new Date(now.getTime() + timeToNextInterval);
+      
+      // Check if we've reached maximum discount
+      const completed = currentDiscount >= settings.maxDiscount;
+      
+      return {
+        started: true,
+        currentDiscount: currentDiscount,
+        nextDiscount: nextDiscount,
+        nextUpdateTime: nextUpdateTime,
+        completed: completed,
+        message: `Discount: ${currentDiscount}%, Next: ${nextDiscount}%, Intervals: ${intervalsElapsed}`
+      };
+    }
+    
+    // Update the timer display
+    function updateDisplay() {
+      const state = calculateState();
+      
+      if (settings.showDebug) {
+        debug(state.message);
+      }
+      
+      // Update current discount
+      if (currentDiscountElement) {
+        currentDiscountElement.textContent = state.currentDiscount;
+      }
+      
+      // Update next discount if not completed
+      if (nextDiscountElement) {
+        if (settings.showNextDiscount && !state.completed && state.currentDiscount < settings.maxDiscount) {
+          nextDiscountContainer.style.display = '';
+          nextDiscountElement.textContent = state.nextDiscount;
+        } else {
+          nextDiscountContainer.style.display = 'none';
+        }
+      }
+      
+      // Handle countdown
+      if (countdownElement) {
+        if (state.completed && !hasCompleted) {
+          // Only trigger this logic once when we first complete
+          hasCompleted = true;
+          
+          // If reached maximum discount
+          countdownElement.textContent = settings.completedText;
+        } else if (state.completed) {
+          // Already completed, just keep showing the completed text
+          countdownElement.textContent = settings.completedText;
+        } else if (!state.started) {
+          // Auction hasn't started yet, countdown to start
+          const now = new Date();
+          const timeRemaining = Math.max(0, state.nextUpdateTime - now);
+          
+          // Calculate hours, minutes, seconds
+          const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+          const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+          
+          // Update the countdown display
+          countdownElement.textContent = formatTime(hours, minutes, seconds);
+          
+          // Change the label if specified
+          if (countdownLabel) {
+            countdownLabel.textContent = settings.startCountdownText;
+          }
+        } else {
+          // Calculate time remaining until next discount
+          const now = new Date();
+          const timeRemaining = Math.max(0, state.nextUpdateTime - now);
+          
+          // If time remaining has reached zero, refresh the display immediately
+          if (timeRemaining <= 0) {
+            setTimeout(updateDisplay, 10); // Tiny delay to avoid recursion
+            return;
+          }
+          
+          // Calculate hours, minutes, seconds
+          const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+          const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+          
+          // Update the countdown display
+          countdownElement.textContent = formatTime(hours, minutes, seconds);
+          
+          // Reset the label if it was changed
+          if (countdownLabel) {
+            countdownLabel.textContent = settings.countdownText;
+          }
+        }
+      }
+    }
+    
+    // Apply button event handler
+    document.getElementById('apply-settings').addEventListener('click', function() {
+      // Clear previous interval
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+      
+      // Reset completion flag
+      hasCompleted = false;
+      
+      // Get new settings from form
+      settings.showTitle = document.getElementById('show-title').checked;
+      settings.timerTitle = document.getElementById('timer-title').value;
+      settings.startDate = document.getElementById('start-date').value;
+      settings.startHour = parseInt(document.getElementById('start-hour').value);
+      settings.startMinute = parseInt(document.getElementById('start-minute').value);
+      settings.startingDiscount = parseInt(document.getElementById('starting-discount').value);
+      settings.intervalMinutes = parseInt(document.getElementById('interval-minutes').value);
+      settings.discountIncrement = parseInt(document.getElementById('discount-increment').value);
+      settings.maxDiscount = parseInt(document.getElementById('max-discount').value);
+      settings.showNextDiscount = document.getElementById('show-next-discount').checked;
+      settings.countdownText = document.getElementById('countdown-text').value;
+      settings.startCountdownText = document.getElementById('start-countdown-text').value;
+      settings.completedText = document.getElementById('completed-text').value;
+      settings.showDebug = document.getElementById('show-debug').checked;
+      
+      // Update the UI
+      titleElement.textContent = settings.timerTitle;
+      titleElement.style.display = settings.showTitle ? 'block' : 'none';
+      
+      // Initial update
+      updateDisplay();
+      
+      // Start a new update interval
+      timerInterval = setInterval(updateDisplay, 1000);
+    });
+    
+    // Initial display update
+    updateDisplay();
+    
+    // Start update interval
+    timerInterval = setInterval(updateDisplay, 1000);
+  </script>
+</body>
+</html> 

@@ -1,0 +1,703 @@
+{% comment %}
+  Standalone Reverse Auction Timer Section
+  
+  This is a completely standalone timer that automatically reduces prices at set intervals.
+  It calculates discounts and countdowns based on the configured settings without requiring server connection.
+  
+  Features:
+  - Automatic discount calculation based on elapsed time since start
+  - Configurable start date and time
+  - Customizable discount increments and intervals
+  - Mobile-responsive design
+  - Timezone support
+{% endcomment %}
+
+<div class="reverse-auction-timer" id="reverse-auction-timer-{{ section.id }}">
+  <div class="reverse-auction-timer__content">
+    {% if section.settings.show_title %}
+      <h3 class="reverse-auction-timer__title">{{ section.settings.timer_title }}</h3>
+    {% endif %}
+    
+    <div class="reverse-auction-timer__discount-container">
+      <div class="reverse-auction-timer__discount">
+        <span id="current-discount-{{ section.id }}">{{ section.settings.starting_discount }}</span>% OFF
+      </div>
+      
+      {% if section.settings.show_next_discount %}
+        <div class="reverse-auction-timer__next-discount">
+          <span id="next-discount-label-{{ section.id }}">Next: </span>
+          <span id="next-discount-{{ section.id }}">{{ section.settings.starting_discount | plus: section.settings.discount_increment }}</span>% OFF
+        </div>
+      {% endif %}
+    </div>
+    
+    <div class="reverse-auction-timer__countdown">
+      <span class="reverse-auction-timer__label">{{ section.settings.countdown_text }}</span>
+      <div class="reverse-auction-timer__time" id="countdown-wrapper-{{ section.id }}">
+        <span id="countdown-{{ section.id }}">00:00:00</span>
+      </div>
+    </div>
+    
+    {% if section.settings.show_product_message %}
+      <div class="reverse-auction-timer__message">
+        {{ section.settings.product_message }}
+      </div>
+    {% endif %}
+    
+    <div class="reverse-auction-timer__status" id="timer-status-{{ section.id }}" style="display: none;">
+      <!-- Status messages will appear here -->
+    </div>
+  </div>
+</div>
+
+<style>
+.reverse-auction-timer {
+  background: {{ section.settings.background_color }};
+  border: 1px solid {{ section.settings.border_color }};
+  border-radius: {{ section.settings.border_radius }}px;
+  padding: 20px;
+  margin: {{ section.settings.margin_vertical }}px 0;
+  text-align: center;
+  box-shadow: {{ section.settings.use_shadow | default: true | json }} ? '0 2px 8px rgba(0,0,0,0.1)' : 'none';
+  max-width: 100%;
+}
+
+.reverse-auction-timer__title {
+  font-size: {{ section.settings.title_size }}px;
+  font-weight: bold;
+  color: {{ section.settings.title_color }};
+  margin-bottom: 10px;
+  margin-top: 0;
+}
+
+.reverse-auction-timer__discount-container {
+  margin-bottom: 15px;
+}
+
+.reverse-auction-timer__discount {
+  font-size: {{ section.settings.discount_size }}px;
+  font-weight: bold;
+  color: {{ section.settings.discount_color }};
+  margin-bottom: 5px;
+}
+
+.reverse-auction-timer__next-discount {
+  font-size: {{ section.settings.next_discount_size }}px;
+  color: {{ section.settings.discount_color }};
+  opacity: 0.8;
+  margin-bottom: 10px;
+}
+
+.reverse-auction-timer__countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: {{ section.settings.show_product_message | default: false | json }} ? '15px' : '0';
+}
+
+.reverse-auction-timer__label {
+  font-size: {{ section.settings.label_size }}px;
+  color: {{ section.settings.text_color }};
+  margin-bottom: 8px;
+}
+
+.reverse-auction-timer__time {
+  font-family: monospace;
+  font-size: {{ section.settings.countdown_size }}px;
+  font-weight: bold;
+  background: {{ section.settings.timer_background }};
+  color: {{ section.settings.timer_color }};
+  padding: 8px 15px;
+  border-radius: 4px;
+  letter-spacing: 2px;
+  min-width: 120px;
+  display: inline-block;
+}
+
+.reverse-auction-timer__message {
+  font-size: {{ section.settings.message_size }}px;
+  color: {{ section.settings.message_color }};
+  margin-top: 15px;
+}
+
+.reverse-auction-timer__status {
+  margin-top: 10px;
+  font-size: 0.8em;
+  color: #666;
+}
+
+@media (min-width: 768px) {
+  .reverse-auction-timer__countdown {
+    flex-direction: {{ section.settings.horizontal_layout | default: true | json }} ? 'row' : 'column';
+  }
+  
+  .reverse-auction-timer__label {
+    margin-bottom: {{ section.settings.horizontal_layout | default: true | json }} ? '0' : '8px';
+    margin-right: {{ section.settings.horizontal_layout | default: true | json }} ? '15px' : '0';
+  }
+}
+
+@media (max-width: 767px) {
+  .reverse-auction-timer__discount {
+    font-size: {{ section.settings.discount_size | times: 0.8 }}px;
+  }
+  
+  .reverse-auction-timer__time {
+    font-size: {{ section.settings.countdown_size | times: 0.9 }}px;
+  }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  (function() {
+    // Unique identifier for this section instance
+    const sectionId = '{{ section.id }}';
+    
+    // Get timer elements
+    const timerElement = document.getElementById(`reverse-auction-timer-${sectionId}`);
+    const currentDiscountElement = document.getElementById(`current-discount-${sectionId}`);
+    const nextDiscountElement = document.getElementById(`next-discount-${sectionId}`);
+    const nextDiscountLabelElement = document.getElementById(`next-discount-label-${sectionId}`);
+    const countdownElement = document.getElementById(`countdown-${sectionId}`);
+    const countdownWrapperElement = document.getElementById(`countdown-wrapper-${sectionId}`);
+    const statusElement = document.getElementById(`timer-status-${sectionId}`);
+    
+    // Parse settings
+    const startDate = "{{ section.settings.start_date }}";
+    const startHour = parseInt("{{ section.settings.start_hour }}") || 0;
+    const startMinute = parseInt("{{ section.settings.start_minute }}") || 0;
+    const timezone = "{{ section.settings.timezone }}" || "Etc/UTC";
+    
+    const startingDiscount = parseInt("{{ section.settings.starting_discount }}") || 5;
+    const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}") || 1;
+    const discountIncrement = parseInt("{{ section.settings.discount_increment }}") || 5;
+    const maxDiscount = parseInt("{{ section.settings.max_discount }}") || 50;
+    const showNextDiscount = {{ section.settings.show_next_discount | json }};
+    const hideWhenCompleted = {{ section.settings.hide_when_completed | json }};
+    const showDebug = {{ section.settings.show_debug_info | json }};
+    
+    // Flag to track if the countdown has already completed
+    let hasCompleted = false;
+    
+    // Format time as HH:MM:SS
+    function formatTime(hours, minutes, seconds) {
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+    
+    // Display a debug message
+    function debug(message) {
+      if (showDebug && statusElement) {
+        statusElement.style.display = 'block';
+        statusElement.textContent = message;
+      }
+    }
+    
+    // Convert the configured date and time to a Date object
+    function getStartTime() {
+      try {
+        if (!startDate || startDate === "" || startDate === "today") {
+          // If no date provided or set to "today", use today's date
+          const today = new Date();
+          debug(`Using today's date with time ${startHour}:${startMinute}`);
+          return new Date(today.getFullYear(), today.getMonth(), today.getDate(), startHour, startMinute, 0);
+        } else {
+          // Parse date components
+          const [year, month, day] = startDate.split('-').map(Number);
+          
+          if (!year || !month || !day) {
+            throw new Error('Invalid date format');
+          }
+          
+          // Create date object
+          const date = new Date(year, month - 1, day, startHour, startMinute, 0);
+          debug(`Using start date: ${date.toString()}`);
+          
+          if (isNaN(date.getTime())) {
+            throw new Error('Invalid date');
+          }
+          
+          return date;
+        }
+      } catch (error) {
+        debug(`Error parsing start time: ${error.message}. Using current time.`);
+        return new Date(); // Return current time as fallback
+      }
+    }
+    
+    // Calculate current discount and time until next discount
+    function calculateState() {
+      const now = new Date();
+      const startTime = getStartTime();
+      
+      // If auction hasn't started yet
+      if (now < startTime) {
+        return {
+          started: false,
+          currentDiscount: 0,
+          nextDiscount: startingDiscount,
+          nextUpdateTime: startTime,
+          completed: false,
+          message: "Auction hasn't started yet"
+        };
+      }
+      
+      // Calculate elapsed time in milliseconds
+      const elapsed = now - startTime;
+      const intervalMs = intervalMinutes * 60 * 1000;
+      
+      // Calculate intervals elapsed
+      const intervalsElapsed = Math.floor(elapsed / intervalMs);
+      
+      // Calculate current discount percentage
+      const currentDiscount = Math.min(startingDiscount + (intervalsElapsed * discountIncrement), maxDiscount);
+      
+      // Calculate next discount (if not at max)
+      const nextDiscount = Math.min(currentDiscount + discountIncrement, maxDiscount);
+      
+      // Calculate time until next interval
+      const timeToNextInterval = intervalsElapsed === 0 ? 
+        intervalMs : // First interval
+        intervalMs - (elapsed % intervalMs); // Subsequent intervals
+        
+      const nextUpdateTime = new Date(now.getTime() + timeToNextInterval);
+      
+      // Check if we've reached maximum discount
+      const completed = currentDiscount >= maxDiscount;
+      
+      return {
+        started: true,
+        currentDiscount: currentDiscount,
+        nextDiscount: nextDiscount,
+        nextUpdateTime: nextUpdateTime,
+        completed: completed,
+        message: `Discount: ${currentDiscount}%, Next: ${nextDiscount}%, Intervals: ${intervalsElapsed}`
+      };
+    }
+    
+    // Update the timer display
+    function updateDisplay() {
+      const state = calculateState();
+      
+      if (showDebug) {
+        debug(state.message);
+      }
+      
+      // Update current discount
+      if (currentDiscountElement) {
+        currentDiscountElement.textContent = state.currentDiscount;
+      }
+      
+      // Update next discount if not completed
+      if (nextDiscountElement && nextDiscountLabelElement) {
+        if (showNextDiscount && !state.completed && state.currentDiscount < maxDiscount) {
+          nextDiscountElement.parentElement.style.display = '';
+          nextDiscountElement.textContent = state.nextDiscount;
+        } else {
+          nextDiscountElement.parentElement.style.display = 'none';
+        }
+      }
+      
+      // Handle countdown
+      if (countdownElement) {
+        if (state.completed && !hasCompleted) {
+          // Only trigger this logic once when we first complete
+          hasCompleted = true;
+          
+          // If reached maximum discount
+          countdownElement.textContent = "{{ section.settings.completed_text }}";
+          
+          // Hide timer after reaching max discount?
+          if (hideWhenCompleted) {
+            setTimeout(function() {
+              timerElement.style.display = 'none';
+            }, 5000); // Wait 5 seconds before hiding
+          }
+        } else if (state.completed) {
+          // Already completed, just keep showing the completed text
+          countdownElement.textContent = "{{ section.settings.completed_text }}";
+        } else if (!state.started) {
+          // Auction hasn't started yet, countdown to start
+          const now = new Date();
+          const timeRemaining = Math.max(0, state.nextUpdateTime - now);
+          
+          // Calculate hours, minutes, seconds
+          const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+          const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+          
+          // Update the countdown display
+          countdownElement.textContent = formatTime(hours, minutes, seconds);
+          
+          // Change the label if specified
+          const countdownLabel = document.querySelector('.reverse-auction-timer__label');
+          if (countdownLabel) {
+            countdownLabel.textContent = "{{ section.settings.start_countdown_text }}";
+          }
+        } else {
+          // Calculate time remaining until next discount
+          const now = new Date();
+          const timeRemaining = Math.max(0, state.nextUpdateTime - now);
+          
+          // If time remaining has reached zero, refresh the display immediately
+          if (timeRemaining <= 0) {
+            setTimeout(updateDisplay, 10); // Tiny delay to avoid recursion
+            return;
+          }
+          
+          // Calculate hours, minutes, seconds
+          const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+          const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+          
+          // Update the countdown display
+          countdownElement.textContent = formatTime(hours, minutes, seconds);
+          
+          // Reset the label if it was changed
+          const countdownLabel = document.querySelector('.reverse-auction-timer__label');
+          if (countdownLabel) {
+            countdownLabel.textContent = "{{ section.settings.countdown_text }}";
+          }
+        }
+      }
+    }
+    
+    // Initial update
+    updateDisplay();
+    
+    // Update every second
+    setInterval(updateDisplay, 1000);
+  })();
+});
+</script>
+
+{% schema %}
+{
+  "name": "Reverse Auction Timer",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Timer Settings"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_title",
+      "label": "Show Title",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "timer_title",
+      "label": "Timer Title",
+      "default": "Limited Time Offer"
+    },
+    {
+      "type": "header",
+      "content": "Schedule Settings"
+    },
+    {
+      "type": "text",
+      "id": "start_date",
+      "label": "Start Date",
+      "info": "Format: YYYY-MM-DD (e.g., 2024-06-15) or 'today' for current date",
+      "placeholder": "2024-06-15"
+    },
+    {
+      "type": "select",
+      "id": "start_hour",
+      "label": "Start Hour",
+      "options": [
+        { "value": "0", "label": "00:00 (12 AM)" },
+        { "value": "1", "label": "01:00 (1 AM)" },
+        { "value": "2", "label": "02:00 (2 AM)" },
+        { "value": "3", "label": "03:00 (3 AM)" },
+        { "value": "4", "label": "04:00 (4 AM)" },
+        { "value": "5", "label": "05:00 (5 AM)" },
+        { "value": "6", "label": "06:00 (6 AM)" },
+        { "value": "7", "label": "07:00 (7 AM)" },
+        { "value": "8", "label": "08:00 (8 AM)" },
+        { "value": "9", "label": "09:00 (9 AM)" },
+        { "value": "10", "label": "10:00 (10 AM)" },
+        { "value": "11", "label": "11:00 (11 AM)" },
+        { "value": "12", "label": "12:00 (12 PM)" },
+        { "value": "13", "label": "13:00 (1 PM)" },
+        { "value": "14", "label": "14:00 (2 PM)" },
+        { "value": "15", "label": "15:00 (3 PM)" },
+        { "value": "16", "label": "16:00 (4 PM)" },
+        { "value": "17", "label": "17:00 (5 PM)" },
+        { "value": "18", "label": "18:00 (6 PM)" },
+        { "value": "19", "label": "19:00 (7 PM)" },
+        { "value": "20", "label": "20:00 (8 PM)" },
+        { "value": "21", "label": "21:00 (9 PM)" },
+        { "value": "22", "label": "22:00 (10 PM)" },
+        { "value": "23", "label": "23:00 (11 PM)" }
+      ],
+      "default": "9"
+    },
+    {
+      "type": "select",
+      "id": "start_minute",
+      "label": "Start Minute",
+      "options": [
+        { "value": "0", "label": "00" },
+        { "value": "5", "label": "05" },
+        { "value": "10", "label": "10" },
+        { "value": "15", "label": "15" },
+        { "value": "20", "label": "20" },
+        { "value": "25", "label": "25" },
+        { "value": "30", "label": "30" },
+        { "value": "35", "label": "35" },
+        { "value": "40", "label": "40" },
+        { "value": "45", "label": "45" },
+        { "value": "50", "label": "50" },
+        { "value": "55", "label": "55" }
+      ],
+      "default": "0"
+    },
+    {
+      "type": "header",
+      "content": "Discount Settings"
+    },
+    {
+      "type": "range",
+      "id": "starting_discount",
+      "label": "Starting Discount Percentage",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 5
+    },
+    {
+      "type": "range",
+      "id": "interval_minutes",
+      "label": "Interval Between Discounts (minutes)",
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "default": 1
+    },
+    {
+      "type": "range",
+      "id": "discount_increment",
+      "label": "Discount Increment Per Interval",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "default": 5
+    },
+    {
+      "type": "range",
+      "id": "max_discount",
+      "label": "Maximum Discount Percentage",
+      "min": 5,
+      "max": 100,
+      "step": 5,
+      "default": 50
+    },
+    {
+      "type": "checkbox",
+      "id": "show_next_discount",
+      "label": "Show Next Discount Level",
+      "default": true
+    },
+    {
+      "type": "header",
+      "content": "Text Settings"
+    },
+    {
+      "type": "text",
+      "id": "countdown_text",
+      "label": "Countdown Label",
+      "default": "Next price drop in:"
+    },
+    {
+      "type": "text",
+      "id": "start_countdown_text",
+      "label": "Start Countdown Label",
+      "default": "Auction starts in:"
+    },
+    {
+      "type": "text",
+      "id": "completed_text",
+      "label": "Text When Maximum Discount Reached",
+      "default": "MAX DISCOUNT REACHED!"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_product_message",
+      "label": "Show Product Message",
+      "default": false
+    },
+    {
+      "type": "richtext",
+      "id": "product_message",
+      "label": "Product Message",
+      "default": "<p>Limited time offer! Add to cart now.</p>"
+    },
+    {
+      "type": "checkbox",
+      "id": "hide_when_completed",
+      "label": "Hide timer when maximum discount reached",
+      "default": false
+    },
+    {
+      "type": "header",
+      "content": "Style Settings"
+    },
+    {
+      "type": "range",
+      "id": "margin_vertical",
+      "label": "Vertical Margin",
+      "min": 0,
+      "max": 50,
+      "step": 5,
+      "default": 20
+    },
+    {
+      "type": "range",
+      "id": "border_radius",
+      "label": "Border Radius",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "default": 4
+    },
+    {
+      "type": "checkbox",
+      "id": "use_shadow",
+      "label": "Use Shadow",
+      "default": true
+    },
+    {
+      "type": "checkbox",
+      "id": "horizontal_layout",
+      "label": "Use Horizontal Layout on Desktop",
+      "default": true
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Background Color",
+      "default": "#f8f8f8"
+    },
+    {
+      "type": "color",
+      "id": "border_color",
+      "label": "Border Color",
+      "default": "#ddd"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text Color",
+      "default": "#333"
+    },
+    {
+      "type": "color",
+      "id": "title_color",
+      "label": "Title Color",
+      "default": "#333"
+    },
+    {
+      "type": "color",
+      "id": "message_color",
+      "label": "Message Text Color",
+      "default": "#666"
+    },
+    {
+      "type": "color",
+      "id": "discount_color",
+      "label": "Discount Text Color",
+      "default": "#e74c3c"
+    },
+    {
+      "type": "color",
+      "id": "timer_background",
+      "label": "Timer Background",
+      "default": "#333"
+    },
+    {
+      "type": "color",
+      "id": "timer_color",
+      "label": "Timer Text Color",
+      "default": "#fff"
+    },
+    {
+      "type": "header",
+      "content": "Font Sizes"
+    },
+    {
+      "type": "range",
+      "id": "title_size",
+      "label": "Title Size",
+      "min": 16,
+      "max": 36,
+      "step": 1,
+      "default": 22
+    },
+    {
+      "type": "range",
+      "id": "discount_size",
+      "label": "Discount Size",
+      "min": 16,
+      "max": 36,
+      "step": 1,
+      "default": 24
+    },
+    {
+      "type": "range",
+      "id": "next_discount_size",
+      "label": "Next Discount Size",
+      "min": 12,
+      "max": 24,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "label_size",
+      "label": "Label Size",
+      "min": 12,
+      "max": 20,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "type": "range",
+      "id": "countdown_size",
+      "label": "Countdown Size",
+      "min": 14,
+      "max": 30,
+      "step": 1,
+      "default": 20
+    },
+    {
+      "type": "range",
+      "id": "message_size",
+      "label": "Message Size",
+      "min": 12,
+      "max": 20,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "type": "header",
+      "content": "Advanced Settings"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_debug_info",
+      "label": "Show Debug Information",
+      "default": false,
+      "info": "Displays technical details for debugging purposes"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Reverse Auction Timer",
+      "category": "Custom"
+    }
+  ]
+}
+{% endschema %} 

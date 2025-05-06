@@ -13,6 +13,13 @@ A Shopify application that automatically reduces product prices at set intervals
 - **Timezone-Based Scheduling**: Schedule auctions to start at specific times in CET timezone
 - **Standalone Timer Section**: Display countdown timers without server connection
 
+## Components
+
+The app consists of two main components:
+
+1. **Server-Side Application**: Manages auctions and automatically updates product prices via the Shopify API
+2. **Standalone Timer Sections**: Client-side timers that can be added to your theme without requiring server connection
+
 ## Setup Instructions
 
 ### Server Setup
@@ -37,29 +44,50 @@ A Shopify application that automatically reduces product prices at set intervals
 
 ### Shopify Store Setup
 
-1. **Add Timer to Product Template**:
-   - Go to Online Store > Themes > Actions > Edit code
-   - Navigate to your product template file (e.g., `templates/product.liquid`)
-   - Add this line where you want the timer to appear:
-     ```liquid
-     {% render 'auction-timer' %}
-     ```
+There are three ways to add a reverse auction timer to your Shopify store:
 
-2. **Add Timer Snippet**:
-   - Create a new snippet called `auction-timer.liquid`
-   - Copy the contents from `public/snippets/auction-timer.liquid`
-   - Update the `statusUrl` in the script to point to your deployed server
-   
-3. **Alternative: Use Standalone Timer Section**:
-   - Copy `public/sections/auction-timer-section.liquid` to your theme's sections folder
-   - Add the section through the theme customizer
-   - Configure the discount percentage and end time directly in the theme editor
-   
-4. **Set Compare-at Prices**:
-   - Use the admin interface to set compare-at prices for all products
-   - This establishes the original price before discounts
+#### Option 1: Server-Connected Timer Snippet
+
+1. Go to Online Store > Themes > Actions > Edit code
+2. Create a new snippet called `auction-timer.liquid`
+3. Copy the contents from `public/snippets/auction-timer.liquid`
+4. Update the `statusUrl` in the script to point to your deployed server
+5. Add this line to your product template where you want the timer to appear:
+   ```liquid
+   {% render 'auction-timer' %}
+   ```
+
+#### Option 2: Original Standalone Timer Section
+
+1. Copy `public/sections/auction-timer-section.liquid` to your theme's sections folder
+2. Add the section through the theme customizer
+3. Configure settings directly in the theme editor
+
+#### Option 3: Improved Reverse Auction Timer Section (Recommended)
+
+1. Copy `public/sections/reverse-auction-timer.liquid` to your theme's sections folder
+2. Add the section through the theme customizer
+3. Configure the timer with these advanced options:
+   - Start date/time for the auction
+   - Starting discount percentage
+   - Interval between discounts (in minutes)
+   - Discount increment per interval
+   - Maximum discount percentage
+   - Complete visual customization (colors, fonts, etc.)
+
+For detailed installation instructions for the standalone timer, see the [Reverse Auction Timer Installation Guide](public/REVERSE_AUCTION_TIMER_INSTALLATION.md).
+
+### Testing the Timer
+
+Before adding the timer to your live theme, you can test it using:
+
+1. Open `public/reverse-auction-timer-test.html` in your browser
+2. Configure different timer settings and see how they work
+3. Use this to determine the best configuration for your store
 
 ## Usage
+
+### Server-Side Auction Management
 
 1. **Start an Auction**:
    - Go to the app admin panel
@@ -76,20 +104,33 @@ A Shopify application that automatically reduces product prices at set intervals
    - Click "Stop Auction for All Products" 
    - All prices will revert to original values
 
-## Timezone Features
+### Standalone Timer Usage
 
-The app supports two different timezone approaches:
+The standalone timers work without server connection and don't actually change product prices. They:
 
-1. **Server-Based Timer**: The auction-timer.liquid snippet connects to the server API and displays the current auction status and countdown. The server manages the auction timing and automatically updates prices at each interval.
+1. Calculate discounts based on elapsed time since a configured start date
+2. Show countdown to the next price drop
+3. Display current and upcoming discount percentages
+4. Work independently in the customer's browser
 
-2. **Standalone Timer**: The auction-timer-section.liquid section works without a server connection. It displays a countdown based on a CET timezone end date specified in the theme editor. This doesn't change prices automatically but provides a visual countdown for your customers.
+## Comparison of Timer Options
+
+| Feature | Server Timer | Original Standalone | Reverse Auction Timer |
+|---------|-------------|---------------------|------------------------|
+| Requires Server | Yes | No | No |
+| Auto-Updates Prices | Yes | No | No |
+| Timezone Support | CET | Limited | Yes |
+| Visual Customization | Limited | Moderate | Extensive |
+| Schedule Start Time | Yes | No | Yes |
+| Next Discount Preview | Yes | Yes | Yes |
+| Mobile Responsive | Yes | Yes | Yes |
 
 ## Troubleshooting
 
 - **Timer Not Showing**: Check browser console for CORS errors
 - **Prices Not Updating**: Check server logs for API rate limit issues
 - **Server Connection Issues**: Verify your Shopify credentials are correct
-- **Timezone Issues**: Use the test-timer.html page to verify your server and browser timezone settings
+- **Timezone Issues**: Use the included test pages to verify your server and browser timezone settings
 
 ## License
 

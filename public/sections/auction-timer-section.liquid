@@ -1,31 +1,31 @@
 {% comment %}
-  Standalone Timezone-Based Auction Timer Section
+  Standalone Auction Timer Section
   
-  This section shows a countdown timer based on the specified CET time,
-  with interval-based discount increases.
+  This is a completely standalone timer with no server connection.
+  It calculates discounts and countdowns based on the configured settings.
 {% endcomment %}
 
-<div class="auction-timer-standalone" id="auction-timer-standalone">
+<div class="auction-timer" id="auction-timer">
   <div class="auction-timer__content">
     <div class="auction-timer__discount">
-      <span class="discount-percent" id="current-discount">{{ section.settings.starting_discount_percent }}</span>% OFF
+      <span id="current-discount">{{ section.settings.starting_discount }}</span>% OFF
     </div>
     {% if section.settings.show_next_discount %}
     <div class="auction-timer__next-discount">
-      Next: <span class="next-discount-percent" id="next-discount">{{ section.settings.starting_discount_percent | plus: section.settings.discount_increment }}</span>% OFF
+      Next: <span id="next-discount">{{ section.settings.starting_discount | plus: section.settings.discount_increment }}</span>% OFF
     </div>
     {% endif %}
     <div class="auction-timer__countdown">
       <span class="auction-timer__label">{{ section.settings.countdown_text }}</span>
       <div class="auction-timer__time">
-        <span class="countdown-display">00:00:00</span>
+        <span id="countdown">00:00:00</span>
       </div>
     </div>
   </div>
 </div>
 
 <style>
-.auction-timer-standalone {
+.auction-timer {
   background: {{ section.settings.background_color }};
   border: 1px solid {{ section.settings.border_color }};
   border-radius: 4px;
@@ -47,10 +47,6 @@
   color: {{ section.settings.discount_color }};
   margin-bottom: 10px;
   opacity: 0.8;
-}
-
-.discount-percent {
-  font-size: 1.6em;
 }
 
 .auction-timer__countdown {
@@ -91,231 +87,152 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const timerElement = document.getElementById('auction-timer-standalone');
+  // Get timer elements
+  const timerElement = document.getElementById('auction-timer');
   const currentDiscountElement = document.getElementById('current-discount');
   const nextDiscountElement = document.getElementById('next-discount');
+  const countdownElement = document.getElementById('countdown');
   
-  if (!timerElement) {
-    console.error('Standalone auction timer element not found');
-    return;
-  }
-  
-  // Get configured time settings from section settings
-  // Legacy text field support
-  const cetStartTimeText = "{{ section.settings.start_time }}"; // Format: "YYYY-MM-DD HH:MM:SS"
-  
-  // New calendar picker fields
-  const startDate = "{{ section.settings.start_date }}"; // Format: YYYY-MM-DD
+  // Parse settings
+  const startDate = "{{ section.settings.start_date }}";
   const startHour = parseInt("{{ section.settings.start_hour }}") || 0;
   const startMinute = parseInt("{{ section.settings.start_minute }}") || 0;
   
-  // Parse interval with a explicit default of 1 minute if not set
-  const startingDiscount = parseInt("{{ section.settings.starting_discount_percent }}") || 0;
-  const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}");
-  console.log("Raw interval value:", "{{ section.settings.interval_minutes }}");
-  console.log("Parsed interval value:", intervalMinutes);
-  
-  // Use 1 minute as default if parsing fails or value is invalid
-  const effectiveIntervalMinutes = (!isNaN(intervalMinutes) && intervalMinutes > 0) ? intervalMinutes : 1;
-  console.log("Effective interval minutes:", effectiveIntervalMinutes);
-  
+  const startingDiscount = parseInt("{{ section.settings.starting_discount }}") || 0;
+  const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}") || 1;
   const discountIncrement = parseInt("{{ section.settings.discount_increment }}") || 5;
-  const maxDiscount = parseInt("{{ section.settings.max_discount_percent }}") || 50;
-  const showNextDiscount = {% if section.settings.show_next_discount %}true{% else %}false{% endif %};
+  const maxDiscount = parseInt("{{ section.settings.max_discount }}") || 100;
+  const showNextDiscount = {{ section.settings.show_next_discount | json }};
   
   // Format time as HH:MM:SS
   function formatTime(hours, minutes, seconds) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
   
-  // Convert the selected date and time to a Date object
+  // Convert the configured date and time to a Date object
   function getStartTime() {
     try {
-      // Check if we should use the calendar fields or the legacy text input
       if (startDate && startDate !== "") {
-        // Parse the selected date and time
+        // Parse date components
         const [year, month, day] = startDate.split('-').map(Number);
         
-        // Create a date in CET timezone (approximately)
-        // Note that this is just an approximation since JavaScript doesn't handle timezones well
-        const cetDate = new Date(Date.UTC(
-          year,
-          month - 1, // JavaScript months are 0-indexed
-          day,
-          startHour - 1, // -1 hour to adjust for CET being UTC+1
-          startMinute,
-          0 // seconds
-        ));
-        
-        return cetDate;
+        // Create date in local timezone first for simpler handling
+        const date = new Date(year, month - 1, day, startHour, startMinute, 0);
+        console.log("Start time:", date);
+        return date;
       } else {
-        // Fall back to the text field if the date picker isn't used
-        return parseCETTime(cetStartTimeText);
+        // Default to now if no date provided
+        return new Date();
       }
     } catch (error) {
       console.error('Error parsing start time:', error);
-      // Return a default time 1 hour in the future if parsing fails
-      const defaultTime = new Date();
-      defaultTime.setHours(defaultTime.getHours() + 1);
-      return defaultTime;
+      return new Date(); // Return current time as fallback
     }
   }
   
-  // Convert CET time string to Date object (legacy support)
-  function parseCETTime(timeString) {
-    try {
-      // Parse the CET time string
-      const [datePart, timePart] = timeString.split(' ');
-      const [year, month, day] = datePart.split('-');
-      const [hours, minutes, seconds] = timePart.split(':');
-      
-      // Create a date object in CET timezone
-      // Note: JavaScript dates have month 0-11, so we subtract 1 from the month
-      const cetDate = new Date(Date.UTC(
-        parseInt(year), 
-        parseInt(month) - 1, 
-        parseInt(day), 
-        parseInt(hours) - 1, // Adjust for CET being UTC+1
-        parseInt(minutes), 
-        parseInt(seconds) || 0
-      ));
-      
-      return cetDate;
-    } catch (error) {
-      console.error('Error parsing time:', error);
-      return null;
-    }
-  }
-  
-  // Calculate discount and next interval based on elapsed time
-  function calculateDiscountState(startTime) {
+  // Calculate current discount and time until next discount
+  function calculateState() {
     const now = new Date();
+    const startTime = getStartTime();
+    
+    // If auction hasn't started yet
     if (now < startTime) {
-      // Sale hasn't started yet
       return {
-        hasStarted: false,
+        started: false,
         currentDiscount: startingDiscount,
         nextDiscount: startingDiscount,
         nextUpdateTime: startTime,
-        isCompleted: false
+        completed: false
       };
     }
     
-    // Calculate time elapsed since start in milliseconds
+    // Calculate elapsed time in milliseconds
     const elapsed = now - startTime;
-    const intervalMs = effectiveIntervalMinutes * 60 * 1000;
+    const intervalMs = intervalMinutes * 60 * 1000;
     
-    // Calculate how many full intervals have passed
+    // Calculate intervals elapsed
     const intervalsElapsed = Math.floor(elapsed / intervalMs);
     
-    // Calculate current discount
+    // Calculate current discount percentage
     const currentDiscount = Math.min(startingDiscount + (intervalsElapsed * discountIncrement), maxDiscount);
     
-    // Calculate next discount
+    // Calculate next discount (if not at max)
     const nextDiscount = Math.min(currentDiscount + discountIncrement, maxDiscount);
     
     // Calculate time until next interval
-    const nextUpdateTime = new Date(startTime.getTime() + ((intervalsElapsed + 1) * intervalMs));
+    const timeToNextInterval = intervalMs - (elapsed % intervalMs);
+    const nextUpdateTime = new Date(now.getTime() + timeToNextInterval);
     
-    // Check if we've reached max discount
-    const isCompleted = currentDiscount >= maxDiscount;
+    // Check if we've reached maximum discount
+    const completed = currentDiscount >= maxDiscount;
     
     return {
-      hasStarted: true,
-      currentDiscount,
-      nextDiscount,
-      nextUpdateTime,
-      isCompleted
+      started: true,
+      currentDiscount: currentDiscount,
+      nextDiscount: nextDiscount,
+      nextUpdateTime: nextUpdateTime,
+      completed: completed
     };
   }
   
-  // Function to update the timer display
-  function updateTimerDisplay() {
-    const startTime = getStartTime();
-    if (!startTime) {
-      timerElement.style.display = "none";
-      return;
-    }
+  // Update the timer display
+  function updateDisplay() {
+    const state = calculateState();
     
-    const discountState = calculateDiscountState(startTime);
-    
-    // Update the discount display
+    // Update current discount
     if (currentDiscountElement) {
-      currentDiscountElement.textContent = discountState.currentDiscount;
+      currentDiscountElement.textContent = state.currentDiscount;
     }
     
-    // Update next discount if enabled
-    if (showNextDiscount && nextDiscountElement && !discountState.isCompleted) {
-      nextDiscountElement.textContent = discountState.nextDiscount;
-      nextDiscountElement.parentElement.style.display = 'block';
-    } else if (nextDiscountElement) {
-      nextDiscountElement.parentElement.style.display = 'none';
+    // Update next discount if not completed
+    if (nextDiscountElement) {
+      if (showNextDiscount && !state.completed) {
+        nextDiscountElement.parentElement.style.display = '';
+        nextDiscountElement.textContent = state.nextDiscount;
+      } else {
+        nextDiscountElement.parentElement.style.display = 'none';
+      }
     }
     
-    // Handle countdown display
-    const countdownDisplay = timerElement.querySelector('.countdown-display');
-    if (!countdownDisplay) return;
-    
-    const now = new Date();
-    
-    console.log("Current time:", now);
-    console.log("Start time:", startTime);
-    console.log("Effective interval:", effectiveIntervalMinutes, "minutes");
-    
-    if (!discountState.hasStarted) {
-      // Countdown to start
-      const timeToStart = Math.max(0, startTime - now);
-      
-      if (timeToStart <= 0) {
-        // Refresh the page once the sale starts
-        window.location.reload();
-        return;
+    // Handle countdown
+    if (countdownElement) {
+      if (state.completed) {
+        // If reached maximum discount
+        countdownElement.textContent = "{{ section.settings.completed_text }}";
+        
+        // Hide timer after reaching max discount?
+        if ({{ section.settings.hide_when_completed | json }}) {
+          setTimeout(function() {
+            timerElement.style.display = 'none';
+          }, 5000); // Wait 5 seconds before hiding
+        }
+      } else {
+        // Calculate time remaining
+        const now = new Date();
+        const timeRemaining = Math.max(0, state.nextUpdateTime - now);
+        
+        // If time remaining has reached zero, refresh the display immediately
+        if (timeRemaining <= 0) {
+          setTimeout(updateDisplay, 10); // Tiny delay to avoid recursion
+          return;
+        }
+        
+        // Calculate hours, minutes, seconds
+        const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
+        const minutes = Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((timeRemaining % (1000 * 60)) / 1000);
+        
+        // Update the countdown display
+        countdownElement.textContent = formatTime(hours, minutes, seconds);
       }
-      
-      // Calculate hours, minutes, seconds until start
-      const hours = Math.floor(timeToStart / (1000 * 60 * 60));
-      const minutes = Math.floor((timeToStart % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((timeToStart % (1000 * 60)) / 1000);
-      
-      countdownDisplay.textContent = formatTime(hours, minutes, seconds);
-    } else if (discountState.isCompleted) {
-      // Sale completed at max discount
-      countdownDisplay.textContent = "{{ section.settings.completed_text }}";
-      
-      // Hide timer after expired duration if set
-      if ({% if section.settings.hide_when_completed %}true{% else %}false{% endif %}) {
-        setTimeout(() => {
-          timerElement.style.display = "none";
-        }, 5000); // Wait 5 seconds before hiding
-      }
-    } else {
-      // Countdown to next discount increase
-      const timeToNextUpdate = Math.max(0, discountState.nextUpdateTime - now);
-      
-      console.log("Next update time:", discountState.nextUpdateTime);
-      console.log("Time until next update:", timeToNextUpdate, "ms");
-      
-      // If time has expired, refresh to get the new discount
-      if (timeToNextUpdate <= 0) {
-        // Auto refresh to show the new discount
-        window.location.reload();
-        return;
-      }
-      
-      // Calculate hours, minutes, seconds
-      const hours = Math.floor(timeToNextUpdate / (1000 * 60 * 60));
-      const minutes = Math.floor((timeToNextUpdate % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((timeToNextUpdate % (1000 * 60)) / 1000);
-      
-      countdownDisplay.textContent = formatTime(hours, minutes, seconds);
     }
   }
   
   // Initial update
-  updateTimerDisplay();
+  updateDisplay();
   
   // Update every second
-  setInterval(updateTimerDisplay, 1000);
+  setInterval(updateDisplay, 1000);
 });
 </script>
 
@@ -325,26 +242,19 @@ document.addEventListener('DOMContentLoaded', function() {
   "settings": [
     {
       "type": "header",
-      "content": "Auction Schedule Settings"
-    },
-    {
-      "type": "text",
-      "id": "start_time",
-      "label": "Start Time (CET)",
-      "info": "Format: YYYY-MM-DD HH:MM:SS, e.g. 2023-12-31 12:00:00",
-      "default": "2023-12-31 12:00:00"
+      "content": "Schedule Settings"
     },
     {
       "type": "text",
       "id": "start_date",
       "label": "Start Date",
-      "info": "Format: YYYY-MM-DD (e.g., 2023-12-31)",
-      "placeholder": "2023-12-31"
+      "info": "Format: YYYY-MM-DD (e.g., 2025-05-31)",
+      "placeholder": "2025-05-31"
     },
     {
       "type": "select",
       "id": "start_hour",
-      "label": "Start Hour (CET)",
+      "label": "Start Hour",
       "options": [
         { "value": "0", "label": "00:00 (12 AM)" },
         { "value": "1", "label": "01:00 (1 AM)" },
@@ -398,28 +308,40 @@ document.addEventListener('DOMContentLoaded', function() {
       "content": "Discount Settings"
     },
     {
-      "type": "number",
-      "id": "starting_discount_percent",
+      "type": "range",
+      "id": "starting_discount",
       "label": "Starting Discount Percentage",
-      "default": 10
-    },
-    {
-      "type": "number",
-      "id": "interval_minutes",
-      "label": "Interval Between Discounts (minutes)",
-      "default": 1
-    },
-    {
-      "type": "number",
-      "id": "discount_increment",
-      "label": "Discount Increment Per Interval",
+      "min": 0,
+      "max": 100,
+      "step": 5,
       "default": 5
     },
     {
-      "type": "number",
-      "id": "max_discount_percent",
+      "type": "range",
+      "id": "interval_minutes",
+      "label": "Interval Between Discounts (minutes)",
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "default": 1
+    },
+    {
+      "type": "range",
+      "id": "discount_increment",
+      "label": "Discount Increment Per Interval",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "default": 5
+    },
+    {
+      "type": "range",
+      "id": "max_discount",
       "label": "Maximum Discount Percentage",
-      "default": 50
+      "min": 5,
+      "max": 100,
+      "step": 5,
+      "default": 100
     },
     {
       "type": "checkbox",
