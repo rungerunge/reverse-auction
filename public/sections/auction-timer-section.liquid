@@ -109,8 +109,16 @@ document.addEventListener('DOMContentLoaded', function() {
   const startHour = parseInt("{{ section.settings.start_hour }}") || 0;
   const startMinute = parseInt("{{ section.settings.start_minute }}") || 0;
   
+  // Parse interval with a explicit default of 1 minute if not set
   const startingDiscount = parseInt("{{ section.settings.starting_discount_percent }}") || 0;
-  const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}") || 60;
+  const intervalMinutes = parseInt("{{ section.settings.interval_minutes }}");
+  console.log("Raw interval value:", "{{ section.settings.interval_minutes }}");
+  console.log("Parsed interval value:", intervalMinutes);
+  
+  // Use 1 minute as default if parsing fails or value is invalid
+  const effectiveIntervalMinutes = (!isNaN(intervalMinutes) && intervalMinutes > 0) ? intervalMinutes : 1;
+  console.log("Effective interval minutes:", effectiveIntervalMinutes);
+  
   const discountIncrement = parseInt("{{ section.settings.discount_increment }}") || 5;
   const maxDiscount = parseInt("{{ section.settings.max_discount_percent }}") || 50;
   const showNextDiscount = {% if section.settings.show_next_discount %}true{% else %}false{% endif %};
@@ -195,7 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Calculate time elapsed since start in milliseconds
     const elapsed = now - startTime;
-    const intervalMs = intervalMinutes * 60 * 1000;
+    const intervalMs = effectiveIntervalMinutes * 60 * 1000;
     
     // Calculate how many full intervals have passed
     const intervalsElapsed = Math.floor(elapsed / intervalMs);
@@ -250,6 +258,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const now = new Date();
     
+    console.log("Current time:", now);
+    console.log("Start time:", startTime);
+    console.log("Effective interval:", effectiveIntervalMinutes, "minutes");
+    
     if (!discountState.hasStarted) {
       // Countdown to start
       const timeToStart = Math.max(0, startTime - now);
@@ -279,6 +291,9 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       // Countdown to next discount increase
       const timeToNextUpdate = Math.max(0, discountState.nextUpdateTime - now);
+      
+      console.log("Next update time:", discountState.nextUpdateTime);
+      console.log("Time until next update:", timeToNextUpdate, "ms");
       
       // If time has expired, refresh to get the new discount
       if (timeToNextUpdate <= 0) {
@@ -392,7 +407,7 @@ document.addEventListener('DOMContentLoaded', function() {
       "type": "number",
       "id": "interval_minutes",
       "label": "Interval Between Discounts (minutes)",
-      "default": 60
+      "default": 1
     },
     {
       "type": "number",
