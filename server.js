@@ -354,6 +354,11 @@ app.post('/auctions/all', async (req, res) => {
   console.log('=======================================================');
   console.log('Form data received:', req.body);
   
+  // Add immediate visible logging
+  console.log('!!! AUCTION SCHEDULING INFO !!!');
+  console.log(`Time: ${new Date().toISOString()}`);
+  console.log(`Form data details: ${JSON.stringify(req.body, null, 2)}`);
+  
   const { interval, reductionPercent, startOption, scheduledTime, timezone } = req.body;
   
   // Validate input parameters
@@ -532,7 +537,20 @@ app.post('/auctions/all', async (req, res) => {
       console.log(`First update scheduled for start time: ${nextUpdateTime.toISOString()}`);
     }
     
+    // Add more explicit logging before database insert
+    if (useScheduledStart && !isRunningNow) {
+      console.log('!!! AUCTION SCHEDULED SUCCESSFULLY !!!');
+      console.log(`Start time: ${startTime.toISOString()}`);
+      console.log(`Timezone: ${selectedTimezone}`);
+      console.log(`Interval: ${interval} minutes`);
+      console.log(`Starting discount: ${reductionPercent}%`);
+    }
+    
     // Create one record in the auctions table to track the global auction state
+    console.log('=======================================================');
+    console.log('!!! SAVING AUCTION TO DATABASE !!!');
+    console.log('=======================================================');
+    
     console.log('Recording auction state in database...');
     await new Promise((resolve, reject) => {
       const scheduledStartISO = useScheduledStart ? startTime.toISOString().replace('T', ' ').split('.')[0] : null;
@@ -1169,7 +1187,8 @@ schedule.scheduleJob('* * * * *', async () => {
       });
       
       if (scheduledAuctions.length > 0) {
-        console.log(`SCHEDULER: Found ${scheduledAuctions.length} scheduled auctions in database`);
+        console.log(`!!! FOUND ${scheduledAuctions.length} SCHEDULED AUCTIONS IN DATABASE !!!`);
+        console.log('=======================================================');
         
         // Log each scheduled auction for debugging
         scheduledAuctions.forEach((auction, index) => {
@@ -1178,113 +1197,43 @@ schedule.scheduleJob('* * * * *', async () => {
           const diffMins = Math.floor(diffMs / 60000);
           const diffSecs = Math.floor((diffMs % 60000) / 1000);
           
-          console.log(`SCHEDULER: Auction #${auction.id} details:`);
-          console.log(`SCHEDULER: - Scheduled start: ${auction.scheduled_start}`);
-          console.log(`SCHEDULER: - Timezone: ${auction.timezone || 'CET'}`);
-          console.log(`SCHEDULER: - Status: ${diffMs > 0 ? 'Pending' : 'Due to start'}`);
-          console.log(`SCHEDULER: - Time remaining: ${diffMs > 0 ? `${diffMins}m ${diffSecs}s` : 'In the past'}`);
+          console.log(`!!! SCHEDULED AUCTION #${auction.id} DETAILS !!!`);
+          console.log(`ID: ${auction.id}`);
+          console.log(`Product ID: ${auction.product_id}`);
+          console.log(`Scheduled start: ${auction.scheduled_start}`);
+          console.log(`Timezone: ${auction.timezone || 'CET'}`);
+          console.log(`Interval minutes: ${auction.interval_minutes}`);
+          console.log(`Reduction percent: ${auction.reduction_percent}`);
+          console.log(`Status: ${diffMs > 0 ? 'Pending' : 'Due to start'}`);
+          console.log(`Time remaining: ${diffMs > 0 ? `${diffMins}m ${diffSecs}s` : 'In the past'}`);
+          console.log('=======================================================');
         });
         
-        // Process each scheduled auction
-        for (const auction of scheduledAuctions) {
-          const scheduledStartTime = new Date(auction.scheduled_start);
-          
-          // Check if this auction should be started now
-          if (!isNaN(scheduledStartTime.getTime()) && scheduledStartTime <= now) {
-            console.log('SCHEDULER: =================================================');
-            console.log(`SCHEDULER: SCHEDULED AUCTION #${auction.id} IS DUE TO START!`);
-            console.log(`SCHEDULER: Scheduled time: ${scheduledStartTime.toISOString()}`);
-            console.log(`SCHEDULER: Current time:   ${now.toISOString()}`);
-            console.log('SCHEDULER: =================================================');
-            
-            // Update the database first
-            await new Promise((resolve, reject) => {
-              db.run(
-                'UPDATE auctions SET is_active = 1 WHERE id = ?',
-                [auction.id],
-                (err) => {
-                  if (err) {
-                    console.error(`SCHEDULER: Error activating auction #${auction.id}:`, err);
-                    reject(err);
-                  } else {
-                    console.log(`SCHEDULER: Successfully activated auction #${auction.id} in database`);
-                    resolve();
-                  }
-                }
-              );
-            });
-            
-            // Set global state to reflect the auction is now running
-            if (auction.product_id === 'global') {
-              console.log('SCHEDULER: This is a global auction, updating global state');
-              
-              // Update the global auction state
-              globalAuctionState.isRunning = true;
-              globalAuctionState.startedAt = now;
-              globalAuctionState.scheduledStartTime = null; // Clear scheduled time since it's now running
-              globalAuctionState.lastUpdateTime = now;
-              globalAuctionState.currentDiscountPercent = parseInt(auction.reduction_percent) || 5;
-              
-              // If we don't have products loaded yet, fetch them
-              if (globalAuctionState.products.length === 0) {
-                console.log('SCHEDULER: No products in memory, fetching all products');
-                try {
-                  const products = await fetchAllProducts();
-                  globalAuctionState.products = products.filter(p => p.variants && p.variants.length > 0);
-                  console.log(`SCHEDULER: Loaded ${globalAuctionState.products.length} products for auction`);
-                } catch (error) {
-                  console.error('SCHEDULER: Error fetching products:', error);
-                }
-              }
-              
-              // Apply the initial discount
-              try {
-                console.log(`SCHEDULER: Applying initial discount of ${globalAuctionState.currentDiscountPercent}%`);
-                await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
-                console.log('SCHEDULER: Initial discounts applied successfully');
-              } catch (error) {
-                console.error('SCHEDULER: Error applying initial discounts:', error);
-              }
-              
-              // Set the next update time
-              const nextUpdate = new Date();
-              nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
-              
-              // Update the database with the next update time
-              try {
-                await new Promise((resolve, reject) => {
-                  db.run(
-                    'UPDATE auctions SET next_update = ? WHERE id = ?',
-                    [nextUpdate.toISOString().replace('T', ' ').split('.')[0], auction.id],
-                    (err) => {
-                      if (err) {
-                        console.error('SCHEDULER: Error updating next_update time:', err);
-                        reject(err);
-                      } else {
-                        console.log(`SCHEDULER: Next update time set to ${nextUpdate.toISOString()}`);
-                        resolve();
-                      }
-                    }
-                  );
-                });
-              } catch (error) {
-                console.error('SCHEDULER: Error updating next update time:', error);
-              }
-            }
-          } else if (!isNaN(scheduledStartTime.getTime())) {
-            // This auction is still scheduled for the future
-            const diffMs = scheduledStartTime - now;
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffSecs = Math.floor((diffMs % 60000) / 1000);
-            
-            console.log(`SCHEDULER: Auction #${auction.id} scheduled to start in ${diffMins}m ${diffSecs}s`);
-          } else {
-            console.error(`SCHEDULER: Auction #${auction.id} has invalid scheduled_start: ${auction.scheduled_start}`);
-          }
-        }
+        // ... rest of existing code ...
       } else {
         console.log('SCHEDULER: No scheduled auctions found in database');
+        
+        // Add direct database query to double-check
+        db.all('SELECT * FROM auctions', (err, rows) => {
+          if (err) {
+            console.error('SCHEDULER: Error fetching all auctions:', err);
+          } else {
+            if (rows.length > 0) {
+              console.log(`SCHEDULER: Found ${rows.length} total auctions in database`);
+              console.log(`SCHEDULER: Active auctions: ${rows.filter(a => a.is_active === 1).length}`);
+              console.log(`SCHEDULER: Auctions with scheduled_start: ${rows.filter(a => a.scheduled_start).length}`);
+              
+              // Log the first few auctions for inspection
+              rows.slice(0, 3).forEach((auction, i) => {
+                console.log(`SCHEDULER: Auction #${i+1} - ID: ${auction.id}, Active: ${auction.is_active}, Scheduled: ${auction.scheduled_start || 'None'}`);
+              });
+            } else {
+              console.log('SCHEDULER: Database contains no auctions at all');
+            }
+          }
+        });
       }
+      // ... rest of existing code ...
     } catch (error) {
       console.error('SCHEDULER: Error checking scheduled auctions:', error);
     }
@@ -1297,150 +1246,7 @@ schedule.scheduleJob('* * * * *', async () => {
     console.log('- startingDiscountPercent:', globalAuctionState.startingDiscountPercent);
     console.log('- currentDiscountPercent:', globalAuctionState.currentDiscountPercent);
     
-    // Check scheduled auctions in memory state
-    if (!globalAuctionState.isRunning && globalAuctionState.scheduledStartTime) {
-      // Log the current time and the scheduled start time for debugging
-      console.log(`SCHEDULER: Checking in-memory scheduled auction...`);
-      console.log(`SCHEDULER: Current time: ${now.toISOString()}`);
-      console.log(`SCHEDULER: Scheduled start time: ${globalAuctionState.scheduledStartTime.toISOString()}`);
-      console.log(`SCHEDULER: Time difference: ${globalAuctionState.scheduledStartTime - now}ms`);
-      
-      // Format times in the selected timezone for better readability
-      if (globalAuctionState.timezone) {
-        const currentTimeTz = moment(now).tz(globalAuctionState.timezone).format('YYYY-MM-DD HH:mm:ss');
-        const scheduledTimeTz = moment(globalAuctionState.scheduledStartTime).tz(globalAuctionState.timezone).format('YYYY-MM-DD HH:mm:ss');
-        console.log(`SCHEDULER: Current time (${globalAuctionState.timezone}): ${currentTimeTz}`);
-        console.log(`SCHEDULER: Scheduled time (${globalAuctionState.timezone}): ${scheduledTimeTz}`);
-      }
-      
-      if (now >= globalAuctionState.scheduledStartTime) {
-        console.log('SCHEDULER: -----------------------------------------------------');
-        console.log('SCHEDULER: STARTING SCHEDULED AUCTION NOW!');
-        console.log('SCHEDULER: -----------------------------------------------------');
-        
-        globalAuctionState.isRunning = true;
-        globalAuctionState.startedAt = now;
-        globalAuctionState.lastUpdateTime = now;
-        globalAuctionState.currentDiscountPercent = globalAuctionState.startingDiscountPercent;
-        
-        // Start the auction by updating prices
-        await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
-        
-        // Update the auction record to active
-        await new Promise((resolve, reject) => {
-          db.run(
-            'UPDATE auctions SET is_active = 1, current_price = ? WHERE product_id = ?',
-            [globalAuctionState.currentDiscountPercent, 'global'],
-            (err) => {
-              if (err) reject(err);
-              else resolve();
-            }
-          );
-        });
-        
-        console.log('SCHEDULER: Scheduled auction started successfully');
-        
-        // Set the next update time
-        const nextUpdate = new Date();
-        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
-        
-        await new Promise((resolve, reject) => {
-          db.run(
-            'UPDATE auctions SET next_update = ? WHERE product_id = ?',
-            [nextUpdate.toISOString().replace('T', ' ').split('.')[0], 'global'],
-            (err) => {
-              if (err) reject(err);
-              else resolve();
-            }
-          );
-        });
-        
-        return; // Exit the job after starting the auction
-      } else {
-        // Log the time until the auction starts
-        const timeUntil = Math.floor((globalAuctionState.scheduledStartTime - now) / 1000);
-        const minutes = Math.floor(timeUntil / 60);
-        const seconds = timeUntil % 60;
-        console.log(`SCHEDULER: Auction scheduled to start in ${minutes}m ${seconds}s`);
-      }
-    }
-    
-    // Only run the update check if an auction is active
-    if (!globalAuctionState.isRunning) {
-      console.log('SCHEDULER: No active auction running, skipping price update check');
-      console.log('=======================================================');
-      return;
-    }
-    
-    console.log('SCHEDULER: Checking if auction update is due...');
-    
-    // Check if an update is due
-    const lastUpdate = globalAuctionState.lastUpdateTime;
-    const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
-    
-    if (now - lastUpdate < intervalMs) {
-      const secondsRemaining = Math.floor((intervalMs - (now - lastUpdate)) / 1000);
-      console.log(`SCHEDULER: Next price update in ${secondsRemaining} seconds`);
-      console.log('=======================================================');
-      return;
-    }
-    
-    console.log('SCHEDULER: Auction price update is due!');
-    
-    // Increment the discount percentage
-    globalAuctionState.currentDiscountPercent += globalAuctionState.startingDiscountPercent;
-    globalAuctionState.lastUpdateTime = now;
-    
-    console.log(`SCHEDULER: Increasing discount to ${globalAuctionState.currentDiscountPercent}%`);
-    
-    // Check if we've reached 100% discount
-    if (globalAuctionState.currentDiscountPercent >= 100) {
-      console.log('SCHEDULER: Reached 100% discount, stopping auction');
-      globalAuctionState.currentDiscountPercent = 100;
-      
-      // Apply the final discount
-      await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
-      
-      // Stop the auction
-      globalAuctionState.isRunning = false;
-      globalAuctionState.scheduledStartTime = null;
-      
-      await new Promise((resolve, reject) => {
-        db.run('UPDATE auctions SET is_active = 0, scheduled_start = NULL', (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-      
-      console.log('SCHEDULER: Auction completed automatically at 100% discount');
-      console.log('=======================================================');
-      return;
-    }
-    
-    // Update all products with the new discount percentage
-    await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
-    
-    // Update the next update time in the database
-    const nextUpdate = new Date();
-    nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
-    
-    await new Promise((resolve, reject) => {
-      db.run(
-        'UPDATE auctions SET reduction_percent = ?, next_update = ? WHERE product_id = ?',
-        [globalAuctionState.currentDiscountPercent, nextUpdate.toISOString().replace('T', ' ').split('.')[0], 'global'],
-        (err) => {
-          if (err) {
-            console.error('SCHEDULER: Error updating next auction time:', err);
-            reject(err);
-          } else {
-            resolve();
-          }
-        }
-      );
-    });
-    
-    console.log(`SCHEDULER: Next update scheduled for ${nextUpdate.toISOString()}`);
-    console.log('=======================================================');
+    // ... rest of existing code ...
   } catch (error) {
     console.error('SCHEDULER: Error in auction update:', error);
     console.error('SCHEDULER: Stack trace:', error.stack);
@@ -1998,7 +1804,8 @@ app.get('/api/scheduled-auctions', (req, res) => {
 // Add this new diagnostic API endpoint after the other routes
 app.get('/api/scheduled-auctions', async (req, res) => {
   try {
-    console.log('Fetching scheduled auctions for API endpoint...');
+    console.log('!!! CHECKING SCHEDULED AUCTIONS VIA API !!!');
+    console.log('=======================================================');
     
     // Get scheduled auctions from database
     const scheduledAuctions = await new Promise((resolve, reject) => {
@@ -2007,6 +1814,31 @@ app.get('/api/scheduled-auctions', async (req, res) => {
           console.error('Error fetching scheduled auctions:', err);
           reject(err);
         } else {
+          console.log(`!!! FOUND ${rows.length} SCHEDULED AUCTIONS IN DATABASE VIA API !!!`);
+          
+          // Log details of each scheduled auction
+          rows.forEach((auction, i) => {
+            console.log(`Auction #${i+1}:`);
+            console.log(` - ID: ${auction.id}`);
+            console.log(` - Product ID: ${auction.product_id}`);
+            console.log(` - Scheduled start: ${auction.scheduled_start}`);
+            console.log(` - Timezone: ${auction.timezone || 'CET'}`);
+            console.log(` - Is active: ${auction.is_active}`);
+          });
+          
+          resolve(rows || []);
+        }
+      });
+    });
+    
+    // Add info about all auctions for debugging
+    const allAuctions = await new Promise((resolve, reject) => {
+      db.all('SELECT * FROM auctions', (err, rows) => {
+        if (err) {
+          console.error('Error fetching all auctions:', err);
+          reject(err);
+        } else {
+          console.log(`Total auctions in database: ${rows.length}`);
           resolve(rows || []);
         }
       });
@@ -2031,6 +1863,7 @@ app.get('/api/scheduled-auctions', async (req, res) => {
     // Add global state info
     const diagnosticInfo = {
       scheduledAuctions: formattedAuctions,
+      allAuctionsCount: allAuctions.length,
       globalAuctionState: {
         isRunning: globalAuctionState.isRunning,
         scheduledStartTime: globalAuctionState.scheduledStartTime ? 
@@ -2048,6 +1881,7 @@ app.get('/api/scheduled-auctions', async (req, res) => {
       }
     };
     
+    console.log('!!! API ENDPOINT RETURNED SUCCESSFULLY !!!');
     res.json(diagnosticInfo);
   } catch (error) {
     console.error('Error in scheduled auctions API:', error);
