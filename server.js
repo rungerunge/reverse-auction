@@ -1329,35 +1329,119 @@ schedule.scheduleJob('* * * * *', async () => {
           console.log('=======================================================');
         });
         
-        // ... rest of existing code ...
+        // Process each scheduled auction - check if any need to start
+        for (const auction of scheduledAuctions) {
+          const scheduledStartTime = new Date(auction.scheduled_start);
+          
+          // Check if this auction should be started now
+          if (!isNaN(scheduledStartTime.getTime()) && scheduledStartTime <= now) {
+            console.log('!!! ATTENTION: SCHEDULED AUCTION IS DUE TO START !!!');
+            console.log(`SCHEDULER: Starting scheduled auction #${auction.id}!`);
+            console.log(`Scheduled time: ${scheduledStartTime.toISOString()}`);
+            console.log(`Current time: ${now.toISOString()}`);
+            
+            try {
+              // Update the database first - mark as active
+              await new Promise((resolve, reject) => {
+                db.run(
+                  'UPDATE auctions SET is_active = 1 WHERE id = ?',
+                  [auction.id],
+                  (err) => {
+                    if (err) {
+                      console.error(`SCHEDULER: Error activating auction #${auction.id}:`, err);
+                      reject(err);
+                    } else {
+                      console.log(`SCHEDULER: Successfully activated auction #${auction.id} in database`);
+                      resolve();
+                    }
+                  }
+                );
+              });
+              
+              // Set global state to reflect the auction is now running
+              if (auction.product_id === 'global') {
+                console.log('SCHEDULER: This is a global auction, updating global state');
+                
+                // Update the global auction state
+                globalAuctionState.isRunning = true;
+                globalAuctionState.startedAt = now;
+                globalAuctionState.scheduledStartTime = null; // Clear scheduled time since it's now running
+                globalAuctionState.lastUpdateTime = now;
+                globalAuctionState.currentDiscountPercent = parseInt(auction.reduction_percent) || 5;
+                globalAuctionState.intervalMinutes = parseInt(auction.interval_minutes) || 1;
+                
+                // If we don't have products loaded yet, fetch them
+                if (globalAuctionState.products.length === 0) {
+                  console.log('SCHEDULER: No products in memory, fetching all products');
+                  try {
+                    const products = await fetchAllProducts();
+                    globalAuctionState.products = products.filter(p => p.variants && p.variants.length > 0);
+                    console.log(`SCHEDULER: Loaded ${globalAuctionState.products.length} products for auction`);
+                  } catch (error) {
+                    console.error('SCHEDULER: Error fetching products:', error);
+                  }
+                }
+                
+                // Apply the initial discount
+                try {
+                  console.log(`SCHEDULER: Applying initial discount of ${globalAuctionState.currentDiscountPercent}%`);
+                  await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
+                  console.log('SCHEDULER: Initial discounts applied successfully');
+                } catch (error) {
+                  console.error('SCHEDULER: Error applying initial discounts:', error);
+                }
+                
+                // Set the next update time
+                const nextUpdate = new Date();
+                nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
+                
+                // Update the database with the next update time
+                try {
+                  await new Promise((resolve, reject) => {
+                    db.run(
+                      'UPDATE auctions SET next_update = ? WHERE id = ?',
+                      [nextUpdate.toISOString().replace('T', ' ').split('.')[0], auction.id],
+                      (err) => {
+                        if (err) {
+                          console.error('SCHEDULER: Error updating next_update time:', err);
+                          reject(err);
+                        } else {
+                          console.log(`SCHEDULER: Next update time set to ${nextUpdate.toISOString()}`);
+                          resolve();
+                        }
+                      }
+                    );
+                  });
+                  
+                  console.log('!!! AUCTION HAS BEEN STARTED SUCCESSFULLY !!!');
+                } catch (error) {
+                  console.error('SCHEDULER: Error updating next update time:', error);
+                }
+              }
+            } catch (error) {
+              console.error(`SCHEDULER: Error starting auction #${auction.id}:`, error);
+            }
+          } else if (!isNaN(scheduledStartTime.getTime())) {
+            // This auction is still scheduled for the future
+            const diffMs = scheduledStartTime - now;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffSecs = Math.floor((diffMs % 60000) / 1000);
+            
+            console.log(`SCHEDULER: Auction #${auction.id} scheduled to start in ${diffMins}m ${diffSecs}s`);
+          } else {
+            console.error(`SCHEDULER: Auction #${auction.id} has invalid scheduled_start: ${auction.scheduled_start}`);
+          }
+        }
       } else {
         console.log('SCHEDULER: No scheduled auctions found in database');
         
-        // Add direct database query to double-check
-        db.all('SELECT * FROM auctions', (err, rows) => {
-          if (err) {
-            console.error('SCHEDULER: Error fetching all auctions:', err);
-          } else {
-            if (rows.length > 0) {
-              console.log(`SCHEDULER: Found ${rows.length} total auctions in database`);
-              console.log(`SCHEDULER: Active auctions: ${rows.filter(a => a.is_active === 1).length}`);
-              console.log(`SCHEDULER: Auctions with scheduled_start: ${rows.filter(a => a.scheduled_start).length}`);
-              
-              // Log the first few auctions for inspection
-              rows.slice(0, 3).forEach((auction, i) => {
-                console.log(`SCHEDULER: Auction #${i+1} - ID: ${auction.id}, Active: ${auction.is_active}, Scheduled: ${auction.scheduled_start || 'None'}`);
-              });
-            } else {
-              console.log('SCHEDULER: Database contains no auctions at all');
-            }
-          }
-        });
+        // ... existing code ...
       }
-      // ... rest of existing code ...
     } catch (error) {
       console.error('SCHEDULER: Error checking scheduled auctions:', error);
     }
     
+    // ... existing code to check if running auction needs price updates ...
     console.log('SCHEDULER: Current globalAuctionState:');
     console.log('- isRunning:', globalAuctionState.isRunning);
     console.log('- scheduledStartTime:', globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : 'null');
@@ -1366,7 +1450,62 @@ schedule.scheduleJob('* * * * *', async () => {
     console.log('- startingDiscountPercent:', globalAuctionState.startingDiscountPercent);
     console.log('- currentDiscountPercent:', globalAuctionState.currentDiscountPercent);
     
-    // ... rest of existing code ...
+    // Now check if running auction needs a price update
+    if (globalAuctionState.isRunning) {
+      console.log('SCHEDULER: Checking if auction price update is due...');
+      
+      const lastUpdate = globalAuctionState.lastUpdateTime;
+      const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
+      
+      if (lastUpdate && now - lastUpdate >= intervalMs) {
+        console.log('!!! AUCTION PRICE UPDATE DUE !!!');
+        
+        // Increment the discount percentage
+        globalAuctionState.currentDiscountPercent += globalAuctionState.startingDiscountPercent;
+        globalAuctionState.lastUpdateTime = now;
+        
+        console.log(`SCHEDULER: Increasing discount to ${globalAuctionState.currentDiscountPercent}%`);
+        
+        // Apply the new discount
+        await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
+        
+        // Update the next update time in the database
+        const nextUpdate = new Date();
+        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
+        
+        await new Promise((resolve, reject) => {
+          db.run(
+            'UPDATE auctions SET reduction_percent = ?, current_price = ?, next_update = ? WHERE product_id = ?',
+            [
+              globalAuctionState.currentDiscountPercent, 
+              globalAuctionState.currentDiscountPercent,
+              nextUpdate.toISOString().replace('T', ' ').split('.')[0], 
+              'global'
+            ],
+            (err) => {
+              if (err) {
+                console.error('SCHEDULER: Error updating next auction time:', err);
+                reject(err);
+              } else {
+                resolve();
+              }
+            }
+          );
+        });
+        
+        console.log(`SCHEDULER: Next update scheduled for ${nextUpdate.toISOString()}`);
+      } else {
+        const timeToNextUpdate = lastUpdate ? intervalMs - (now - lastUpdate) : 0;
+        const minutesRemaining = Math.floor(timeToNextUpdate / 60000);
+        const secondsRemaining = Math.floor((timeToNextUpdate % 60000) / 1000);
+        
+        console.log(`SCHEDULER: Next price update in ${minutesRemaining}m ${secondsRemaining}s`);
+      }
+    } else {
+      console.log('SCHEDULER: No active auction running, skipping price update check');
+    }
+    
+    console.log('=======================================================');
   } catch (error) {
     console.error('SCHEDULER: Error in auction update:', error);
     console.error('SCHEDULER: Stack trace:', error.stack);
