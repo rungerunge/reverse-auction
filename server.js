@@ -200,12 +200,15 @@ async function shopifyRequest(endpoint, method = 'GET', data = null) {
   }
 }
 
-// Add a new GraphQL helper function after the shopifyRequest function
+// Enhanced GraphQL helper with detailed logging
 async function shopifyGraphQLRequest(query, variables = {}) {
   const shopUrl = process.env.SHOPIFY_SHOP_URL.replace('https://', '').replace('http://', '').trim();
   const url = `https://${shopUrl}/admin/api/2024-01/graphql.json`;
   
-  console.log('Making GraphQL request to Shopify');
+  console.log('--- Shopify GraphQL Request ---');
+  console.log('URL:', url);
+  console.log('Query:', query.replace(/\n/g, ' ').replace(/\s+/g, ' '));
+  console.log('Variables:', JSON.stringify(variables, null, 2));
   
   const options = {
     method: 'POST',
@@ -223,21 +226,24 @@ async function shopifyGraphQLRequest(query, variables = {}) {
   try {
     const response = await fetch(url, options);
     console.log('GraphQL response status:', response.status);
-    
+    const text = await response.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (e) {
+      console.error('Failed to parse GraphQL response as JSON:', text);
+      throw e;
+    }
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('GraphQL error response:', errorText);
-      throw new Error(`Shopify GraphQL API error: ${response.status} ${response.statusText}\n${errorText}`);
+      console.error('GraphQL error response:', text);
+      throw new Error(`Shopify GraphQL API error: ${response.status} ${response.statusText}\n${text}`);
     }
-    
-    const json = await response.json();
-    
-    // Check for GraphQL errors
     if (json.errors) {
-      console.error('GraphQL errors:', json.errors);
-      throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+      console.error('GraphQL errors:', JSON.stringify(json.errors, null, 2));
     }
-    
+    if (json.data) {
+      console.log('GraphQL data:', JSON.stringify(json.data, null, 2));
+    }
     return json;
   } catch (error) {
     console.error('GraphQL request failed:', error);
