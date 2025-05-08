@@ -767,109 +767,86 @@ app.post('/stop-all-auctions', async (req, res) => {
 
 // Optimized helper function to update all products with the same discount percentage
 async function updateAllProductPrices(discountPercent) {
-  console.log(`!!! PRICE UPDATE OPERATION STARTED !!!`);
+  console.log(`Starting price update operation for all products to ${discountPercent}% discount`);
   console.log(`Timestamp: ${new Date().toISOString()}`);
-  console.log(`Attempting to update ${globalAuctionState.products.length} products to ${discountPercent}% discount`);
-  
+
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
   console.log(`Found ${validProducts.length} valid products with variants`);
-  
-  // Log unique product IDs for verification
-  console.log(`Product IDs: ${validProducts.slice(0, 5).map(p => p.id).join(', ')}${validProducts.length > 5 ? '...' : ''}`);
-  
+
   if (validProducts.length === 0) {
     console.log('No valid products to update prices for.');
     return;
   }
-  
-  // Use a larger batch size for better efficiency
-  const BATCH_SIZE = 5; // Reduced from 10 to 5 for more reliability
-  const BATCH_DELAY_MS = 500;
-  
+
+  // Optimize batch size for Shopify's rate limit (2 requests/second)
+  // We'll do 5 products per batch, with each product potentially having multiple variants
+  const BATCH_SIZE = 5;
+  const BATCH_DELAY_MS = 500; // 500ms between batches to respect rate limit
+
   const batches = [];
   for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
     batches.push(validProducts.slice(i, i + BATCH_SIZE));
   }
-  
-  console.log(`Processing ${batches.length} batches of up to ${BATCH_SIZE} products each`);
-  
-  // Track failures for retry
+
   let failedProducts = [];
-  
+
   // Process each batch
   for (const [index, batch] of batches.entries()) {
     console.log(`Processing batch ${index + 1}/${batches.length}`);
-    
+
     try {
-      // Process multiple products in a single GraphQL request
+      // Prepare updates for this batch
       const productUpdates = batch.map(product => {
         try {
           // Ensure product ID is valid and in the correct format
           const rawProductId = (product.id || '').toString().replace(/\.0$/, '');
           const productId = rawProductId.includes('gid://') ? rawProductId : `gid://shopify/Product/${rawProductId}`;
-          
-          // Get original price for discount calculation
-          let originalPrice = 0;
-          
-          // Handle different variant formats
-          if (product.variants && product.variants.length > 0) {
-            const mainVariant = product.variants[0];
-            
-            if (mainVariant.node) {
-              // GraphQL format
-              originalPrice = parseFloat(mainVariant.node.compareAtPrice || mainVariant.node.price);
-            } else {
-              // REST API format
-              originalPrice = parseFloat(mainVariant.compare_at_price || mainVariant.price);
-            }
-          }
-          
-          if (!originalPrice || isNaN(originalPrice)) {
-            console.log(`Skipping product ${productId} - cannot determine original price`);
-            return null;
-          }
-          
-          const discountedPrice = (originalPrice * (1 - discountPercent / 100)).toFixed(2);
-          
-          // Prepare tags for consistent display in storefront
+
+          // Add discount tag and remove any old discount tags
           const tagList = product.tags ? (typeof product.tags === 'string' ? product.tags.split(', ') : []) : [];
           const filteredTags = tagList.filter(tag => !tag.startsWith('discount:'));
           filteredTags.push(`discount:${discountPercent}`);
-          
-          // Ensure we have valid variant data
+
+          // Prepare variant updates
           const variants = (product.variants || []).map(variant => {
-            // Handle both REST API and GraphQL variant formats
             let variantId;
+            let originalPrice;
             let compareAtPrice;
-            
+
             if (variant.admin_graphql_api_id) {
               // REST API format
               variantId = variant.admin_graphql_api_id;
+              originalPrice = variant.compare_at_price || variant.price;
               compareAtPrice = variant.compare_at_price || variant.price;
             } else if (variant.node) {
               // GraphQL format
               variantId = variant.node.id;
+              originalPrice = variant.node.compareAtPrice || variant.node.price;
               compareAtPrice = variant.node.compareAtPrice || variant.node.price;
             } else {
               // Standard format or fallback
               const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
               variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
+              originalPrice = variant.compare_at_price || variant.price;
               compareAtPrice = variant.compare_at_price || variant.price;
             }
-            
+
+            // Calculate discounted price
+            const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
+
             return {
               id: variantId,
               price: discountedPrice,
               compareAtPrice: compareAtPrice
             };
           }).filter(v => v.id); // Filter out any variants without valid IDs
-          
+
           if (variants.length === 0) {
             console.log(`Skipping product ${productId} - no valid variants found`);
             return null;
           }
-          
+
           return {
             id: productId,
             tags: filteredTags.join(', '),
@@ -879,19 +856,20 @@ async function updateAllProductPrices(discountPercent) {
           console.error(`Error preparing product data for ${product.id || 'unknown'}:`, error);
           return null;
         }
-      }).filter(update => update !== null); // Remove any products that failed preparation
-      
+      }).filter(update => update !== null);
+
       if (productUpdates.length === 0) {
         console.log(`No valid products to update in batch ${index + 1}`);
         continue;
       }
-      
-      // For each product in the batch, send a GraphQL mutation
+
+      // Process each product update in parallel
       const updatePromises = productUpdates.map(async (productUpdate) => {
         try {
-          const query = `
-            mutation updateProduct($input: ProductInput!) {
-              productUpdate(input: $input) {
+          // First update the product tags
+          const productMutation = `
+            mutation updateProduct($product: ProductInput!) {
+              productUpdate(product: $product) {
                 product {
                   id
                   title
@@ -903,34 +881,57 @@ async function updateAllProductPrices(discountPercent) {
               }
             }
           `;
-          
-          const variables = {
-            input: {
+
+          const productVariables = {
+            product: {
               id: productUpdate.id,
-              tags: productUpdate.tags,
-              variants: productUpdate.variants.map(v => ({
-                id: v.id,
-                price: v.price,
-                compareAtPrice: v.compareAtPrice
-              }))
+              tags: productUpdate.tags
             }
           };
-          
-          const result = await shopifyGraphQLRequest(query, variables);
-          
-          if (result.data?.productUpdate?.userErrors?.length > 0) {
-            console.error(`Error updating product ${productUpdate.id}:`, result.data.productUpdate.userErrors);
-            return { 
-              success: false, 
-              product: batch.find(p => {
-                const pId = p.id.toString().replace(/\.0$/, '');
-                const productId = productUpdate.id.includes('gid://') ? 
-                  productUpdate.id.split('/').pop() : productUpdate.id;
-                return pId === productId;
-              })
-            };
+
+          const productResult = await shopifyGraphQLRequest(productMutation, productVariables);
+
+          if (productResult.data?.productUpdate?.userErrors?.length > 0) {
+            throw new Error(`Product update failed: ${JSON.stringify(productResult.data.productUpdate.userErrors)}`);
           }
-          
+
+          // Then update all variants in parallel
+          const variantMutation = `
+            mutation updateProductVariant($input: ProductVariantInput!) {
+              productVariantUpdate(input: $input) {
+                productVariant {
+                  id
+                  price
+                  compareAtPrice
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+
+          const variantPromises = productUpdate.variants.map(async variant => {
+            const variantVariables = {
+              input: {
+                id: variant.id,
+                price: variant.price,
+                compareAtPrice: variant.compareAtPrice
+              }
+            };
+
+            const variantResult = await shopifyGraphQLRequest(variantMutation, variantVariables);
+
+            if (variantResult.data?.productVariantUpdate?.userErrors?.length > 0) {
+              throw new Error(`Variant update failed: ${JSON.stringify(variantResult.data.productVariantUpdate.userErrors)}`);
+            }
+
+            return variantResult;
+          });
+
+          await Promise.all(variantPromises);
+
           console.log(`Product ${productUpdate.id} price updated to ${discountPercent}% off`);
           return { success: true };
         } catch (error) {
@@ -946,9 +947,9 @@ async function updateAllProductPrices(discountPercent) {
           };
         }
       });
-      
+
       const batchResults = await Promise.all(updatePromises);
-      
+
       // Collect failed products for retry
       failedProducts = [...failedProducts, ...batchResults
         .filter(r => !r.success && r.product)
@@ -957,14 +958,14 @@ async function updateAllProductPrices(discountPercent) {
       console.error(`Error processing batch ${index + 1}:`, error);
       failedProducts = [...failedProducts, ...batch];
     }
-    
-    // Wait a shorter time between batches
+
+    // Wait between batches to respect rate limits
     if (index < batches.length - 1) {
       console.log(`Waiting ${BATCH_DELAY_MS}ms before next batch...`);
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
-  
+
   // Retry failed products
   if (failedProducts.length > 0 && failedProducts.length < validProducts.length) {
     console.log(`Retrying ${failedProducts.length} failed products...`);
@@ -982,7 +983,7 @@ async function updateAllProductPrices(discountPercent) {
   } else if (failedProducts.length === validProducts.length) {
     console.error('All products failed to update. Giving up after one attempt to avoid infinite loop.');
   }
-  
+
   console.log(`!!! PRICE UPDATE OPERATION COMPLETED !!!`);
   console.log(`Timestamp: ${new Date().toISOString()}`);
   console.log(`Successfully updated products to ${discountPercent}% discount`);
@@ -1003,7 +1004,7 @@ async function resetAllProductPrices() {
   }
   
   // Use larger batch size for better efficiency
-  const BATCH_SIZE = 5; // Reduced from 10 to 5 for more reliability
+  const BATCH_SIZE = 5;
   const BATCH_DELAY_MS = 500;
   
   const batches = [];
@@ -1032,35 +1033,30 @@ async function resetAllProductPrices() {
           
           // Ensure we have valid variant data
           const variants = (product.variants || []).map(variant => {
-            // Handle both REST API and GraphQL variant formats
             let variantId;
-            let price;
             let compareAtPrice;
             
             if (variant.admin_graphql_api_id) {
               // REST API format
               variantId = variant.admin_graphql_api_id;
-              price = variant.compare_at_price || variant.price;
               compareAtPrice = variant.compare_at_price || variant.price;
             } else if (variant.node) {
               // GraphQL format
               variantId = variant.node.id;
-              price = variant.node.compareAtPrice || variant.node.price;
               compareAtPrice = variant.node.compareAtPrice || variant.node.price;
             } else {
               // Standard format or fallback
               const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
               variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
-              price = variant.compare_at_price || variant.price;
               compareAtPrice = variant.compare_at_price || variant.price;
             }
             
             return {
               id: variantId,
-              price: price,
+              price: compareAtPrice,
               compareAtPrice: compareAtPrice
             };
-          }).filter(v => v.id); // Filter out any variants without valid IDs
+          }).filter(v => v.id);
           
           if (variants.length === 0) {
             console.log(`Skipping product ${productId} - no valid variants found`);
@@ -1076,19 +1072,20 @@ async function resetAllProductPrices() {
           console.error(`Error preparing product data for ${product.id || 'unknown'}:`, error);
           return null;
         }
-      }).filter(update => update !== null); // Remove any products that failed preparation
+      }).filter(update => update !== null);
       
       if (productUpdates.length === 0) {
         console.log(`No valid products to update in batch ${index + 1}`);
         continue;
       }
       
-      // For each product in the batch, send a GraphQL mutation
+      // Process each product update in parallel
       const updatePromises = productUpdates.map(async (productUpdate) => {
         try {
-          const query = `
-            mutation updateProduct($input: ProductInput!) {
-              productUpdate(input: $input) {
+          // First update the product tags
+          const productMutation = `
+            mutation updateProduct($product: ProductInput!) {
+              productUpdate(product: $product) {
                 product {
                   id
                   title
@@ -1101,32 +1098,55 @@ async function resetAllProductPrices() {
             }
           `;
           
-          const variables = {
-            input: {
+          const productVariables = {
+            product: {
               id: productUpdate.id,
-              tags: productUpdate.tags,
-              variants: productUpdate.variants.map(v => ({
-                id: v.id,
-                price: v.price,
-                compareAtPrice: v.compareAtPrice
-              }))
+              tags: productUpdate.tags
             }
           };
           
-          const result = await shopifyGraphQLRequest(query, variables);
+          const productResult = await shopifyGraphQLRequest(productMutation, productVariables);
           
-          if (result.data?.productUpdate?.userErrors?.length > 0) {
-            console.error(`Error resetting product ${productUpdate.id}:`, result.data.productUpdate.userErrors);
-            return { 
-              success: false, 
-              product: batch.find(p => {
-                const pId = p.id.toString().replace(/\.0$/, '');
-                const productId = productUpdate.id.includes('gid://') ? 
-                  productUpdate.id.split('/').pop() : productUpdate.id;
-                return pId === productId;
-              })
-            };
+          if (productResult.data?.productUpdate?.userErrors?.length > 0) {
+            throw new Error(`Product update failed: ${JSON.stringify(productResult.data.productUpdate.userErrors)}`);
           }
+          
+          // Then update all variants in parallel
+          const variantMutation = `
+            mutation updateProductVariant($input: ProductVariantInput!) {
+              productVariantUpdate(input: $input) {
+                productVariant {
+                  id
+                  price
+                  compareAtPrice
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+          
+          const variantPromises = productUpdate.variants.map(async variant => {
+            const variantVariables = {
+              input: {
+                id: variant.id,
+                price: variant.price,
+                compareAtPrice: variant.compareAtPrice
+              }
+            };
+            
+            const variantResult = await shopifyGraphQLRequest(variantMutation, variantVariables);
+            
+            if (variantResult.data?.productVariantUpdate?.userErrors?.length > 0) {
+              throw new Error(`Variant update failed: ${JSON.stringify(variantResult.data.productVariantUpdate.userErrors)}`);
+            }
+            
+            return variantResult;
+          });
+          
+          await Promise.all(variantPromises);
           
           console.log(`Reset price for product ${productUpdate.id}`);
           return { success: true };
@@ -1155,13 +1175,14 @@ async function resetAllProductPrices() {
       failedProducts = [...failedProducts, ...batch];
     }
     
-    // Wait between batches
+    // Wait between batches to respect rate limits
     if (index < batches.length - 1) {
+      console.log(`Waiting ${BATCH_DELAY_MS}ms before next batch...`);
       await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
   
-  // Retry failed products (up to max retries)
+  // Retry failed products
   if (failedProducts.length > 0 && failedProducts.length < validProducts.length) {
     console.log(`Retrying ${failedProducts.length} failed products...`);
     
@@ -1179,7 +1200,7 @@ async function resetAllProductPrices() {
     console.error('All products failed to reset. Giving up after one attempt to avoid infinite loop.');
   }
   
-  console.log('Finished resetting product prices');
+  console.log('Finished resetting all product prices');
 }
 
 // New function to initialize scheduled auctions on server startup
@@ -1546,37 +1567,41 @@ app.get('/', async (req, res) => {
 
 app.post('/set-compare-prices', async (req, res) => {
   try {
-    console.log('Setting compare-at prices for all products using GraphQL...');
+    console.log('Setting compare-at prices for all products...');
     
-    // Fetch all products using our optimized GraphQL method
-    const products = await fetchAllProducts();
-    console.log(`Found ${products.length} products to process`);
-    
-    // Use the same batch approach as in other functions
-    const BATCH_SIZE = 10;
-    const BATCH_DELAY_MS = 500;
-    
-    // Create batches for processing
-    const batches = [];
-    for (let i = 0; i < products.length; i += BATCH_SIZE) {
-      batches.push(products.slice(i, i + BATCH_SIZE));
+    // Fetch all products if they're not already loaded
+    let products;
+    if (globalAuctionState.products.length > 0) {
+      products = globalAuctionState.products;
+    } else {
+      products = await fetchAllProducts();
     }
     
-    console.log(`Processing ${batches.length} batches of up to ${BATCH_SIZE} products each`);
+    // Filter out products without variants
+    const validProducts = products.filter(p => p && p.variants && p.variants.length > 0);
+    console.log(`Found ${validProducts.length} valid products with variants`);
+    
+    if (validProducts.length === 0) {
+      console.log('No valid products to update compare-at prices for.');
+      return res.redirect('/?message=No valid products found');
+    }
+    
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 500;
+    
+    const batches = [];
+    for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
+      batches.push(validProducts.slice(i, i + BATCH_SIZE));
+    }
     
     // Process each batch
     for (const [index, batch] of batches.entries()) {
       console.log(`Processing batch ${index + 1}/${batches.length}`);
       
-      // Prepare the updates for products that need it
+      // Process multiple products in parallel
       const updatePromises = batch.map(async (product) => {
-        // Skip products that don't have variants
-        if (!product.variants || product.variants.length === 0) {
-          return { skipped: true };
-        }
-        
-        // Check if any variant needs updating (no compare-at price)
-        const needsUpdate = product.variants.some(variant => 
+        // Check if any variant needs update
+        const needsUpdate = product.variants.some(variant =>
           !variant.compare_at_price || variant.compare_at_price === '0.00'
         );
         
@@ -1587,19 +1612,14 @@ app.post('/set-compare-prices', async (req, res) => {
         try {
           const productId = `gid://shopify/Product/${product.id.toString().replace(/\.0$/, '')}`;
           
-          // Prepare variants update
-          const variantsInput = product.variants.map(variant => ({
-            id: variant.admin_graphql_api_id || `gid://shopify/ProductVariant/${variant.id.toString().replace(/\.0$/, '')}`,
-            compareAtPrice: variant.compare_at_price || variant.price
-          }));
-          
-          // Update product using GraphQL
-          const query = `
-            mutation updateProduct($input: ProductInput!) {
-              productUpdate(input: $input) {
-                product {
+          // Update each variant in parallel
+          const variantMutation = `
+            mutation updateProductVariant($input: ProductVariantInput!) {
+              productVariantUpdate(input: $input) {
+                productVariant {
                   id
-                  title
+                  price
+                  compareAtPrice
                 }
                 userErrors {
                   field
@@ -1609,19 +1629,30 @@ app.post('/set-compare-prices', async (req, res) => {
             }
           `;
           
-          const variables = {
-            input: {
-              id: productId,
-              variants: variantsInput
+          const variantPromises = product.variants.map(async variant => {
+            if (!variant.compare_at_price || variant.compare_at_price === '0.00') {
+              const variantId = variant.admin_graphql_api_id || 
+                `gid://shopify/ProductVariant/${variant.id.toString().replace(/\.0$/, '')}`;
+              
+              const variantVariables = {
+                input: {
+                  id: variantId,
+                  compareAtPrice: variant.price
+                }
+              };
+              
+              const variantResult = await shopifyGraphQLRequest(variantMutation, variantVariables);
+              
+              if (variantResult.data?.productVariantUpdate?.userErrors?.length > 0) {
+                throw new Error(`Variant update failed: ${JSON.stringify(variantResult.data.productVariantUpdate.userErrors)}`);
+              }
+              
+              return variantResult;
             }
-          };
+            return null;
+          }).filter(p => p !== null);
           
-          const result = await shopifyGraphQLRequest(query, variables);
-          
-          if (result.data?.productUpdate?.userErrors?.length > 0) {
-            console.error(`Error updating compare-at price for product ${productId}:`, result.data.productUpdate.userErrors);
-            return { success: false, error: result.data.productUpdate.userErrors };
-          }
+          await Promise.all(variantPromises);
           
           console.log(`Successfully updated compare-at price for product ${productId}`);
           return { success: true };
