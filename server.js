@@ -200,15 +200,18 @@ async function shopifyRequest(endpoint, method = 'GET', data = null) {
   }
 }
 
-// Enhanced GraphQL helper with detailed logging
-async function shopifyGraphQLRequest(query, variables = {}) {
+// Enhanced GraphQL helper with rate limiting and retry logic
+async function shopifyGraphQLRequest(query, variables = {}, retryCount = 0) {
   const shopUrl = process.env.SHOPIFY_SHOP_URL.replace('https://', '').replace('http://', '').trim();
   const url = `https://${shopUrl}/admin/api/2024-01/graphql.json`;
   
-  console.log('--- Shopify GraphQL Request ---');
-  console.log('URL:', url);
-  console.log('Query:', query.replace(/\n/g, ' ').replace(/\s+/g, ' '));
-  console.log('Variables:', JSON.stringify(variables, null, 2));
+  // Reduce logging spam for retries
+  if (retryCount === 0) {
+    console.log('--- Shopify GraphQL Request ---');
+    console.log('URL:', url);
+    console.log('Query:', query.replace(/\n/g, ' ').replace(/\s+/g, ' '));
+    console.log('Variables:', JSON.stringify(variables, null, 2));
+  }
   
   const options = {
     method: 'POST',
@@ -238,11 +241,26 @@ async function shopifyGraphQLRequest(query, variables = {}) {
       console.error('GraphQL error response:', text);
       throw new Error(`Shopify GraphQL API error: ${response.status} ${response.statusText}\n${text}`);
     }
+    
+    // Handle rate limiting with exponential backoff
     if (json.errors) {
       console.error('GraphQL errors:', JSON.stringify(json.errors, null, 2));
+      
+      const throttledError = json.errors.find(error => 
+        error.extensions && error.extensions.code === 'THROTTLED'
+      );
+      
+      if (throttledError && retryCount < 5) {
+        const waitTime = Math.min(2000 * Math.pow(2, retryCount), 15000); // 2s, 4s, 8s, 15s, 15s
+        console.log(`🚦 THROTTLED - Waiting ${waitTime}ms before retry ${retryCount + 1}/5...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        return shopifyGraphQLRequest(query, variables, retryCount + 1);
+      }
     }
-    if (json.data) {
-      console.log('GraphQL data:', JSON.stringify(json.data, null, 2));
+    
+    if (json.data && retryCount === 0) {
+      // Only log data for first attempt to reduce spam
+      console.log('GraphQL data received successfully');
     }
     return json;
   } catch (error) {
@@ -330,8 +348,8 @@ async function fetchAllProducts() {
       cursor = pageInfo.endCursor;
       
       if (hasNextPage) {
-        // Add a small delay to respect API rate limits
-        await new Promise(resolve => setTimeout(resolve, 250));
+        // Increased delay to respect API rate limits (avoid throttling)
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second between pages
       } else {
         console.log('Reached last page of products');
       }
@@ -860,10 +878,10 @@ async function updateAllProductPrices(discountPercent) {
   // 3. Reduced delays with intelligent rate limiting
   // 4. Parallel processing of all operations
   
-  const BATCH_SIZE = 15; // Optimized batch size for reliability
-  const VARIANT_BATCH_SIZE = 50; // Process up to 50 variants per bulk mutation (safer than 100)
-  const BATCH_DELAY_MS = 200; // Reduced delay for faster processing
-  const MAX_CONCURRENT_REQUESTS = 8; // Optimized concurrent requests
+  const BATCH_SIZE = 8; // Reduced to avoid throttling
+  const VARIANT_BATCH_SIZE = 20; // Reduced to avoid throttling
+  const BATCH_DELAY_MS = 1500; // Increased delay to respect rate limits
+  const MAX_CONCURRENT_REQUESTS = 2; // Reduced concurrent requests to avoid throttling
 
   // Create batches for processing
   const batches = [];
@@ -1310,10 +1328,10 @@ async function resetAllProductPrices() {
     return;
   }
   
-  // Use the same optimizations as updateAllProductPrices
-  const BATCH_SIZE = 15;
-  const VARIANT_BATCH_SIZE = 50;
-  const MAX_CONCURRENT_REQUESTS = 8;
+  // Use conservative settings to avoid throttling
+  const BATCH_SIZE = 8;
+  const VARIANT_BATCH_SIZE = 20;
+  const MAX_CONCURRENT_REQUESTS = 2;
   
   let allVariantUpdates = [];
   let productTagUpdates = [];
@@ -1423,9 +1441,11 @@ async function resetAllProductPrices() {
 
     console.log(`💰 Processing ${allVariantUpdates.length} variant price resets in ${variantBatches.length} bulk operations`);
 
-    // Execute variant resets with bulk mutations
-    const variantPromises = variantBatches.map((variantBatch, batchIndex) => 
-      runWithConcurrencyLimit(async () => {
+    // Execute variant resets with bulk mutations (with delays to avoid throttling)
+    for (let batchIndex = 0; batchIndex < variantBatches.length; batchIndex++) {
+      const variantBatch = variantBatches[batchIndex];
+      
+      await runWithConcurrencyLimit(async () => {
         console.log(`💵 Processing reset batch ${batchIndex + 1}/${variantBatches.length} (${variantBatch.length} variants)`);
         
         // Use bulk mutation for multiple variants
@@ -1500,8 +1520,14 @@ async function resetAllProductPrices() {
           
           return { success: true, count: successCount };
         }
-      })
-    );
+      });
+      
+      // Add delay between batches to avoid throttling
+      if (batchIndex < variantBatches.length - 1) {
+        console.log('⏱️  Waiting 1.5s between variant batches to avoid throttling...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
 
     // BULK PRODUCT TAG UPDATES: Remove discount tags
     const productBatches = [];
@@ -1511,8 +1537,11 @@ async function resetAllProductPrices() {
 
     console.log(`🏷️  Processing ${productTagUpdates.length} product tag removals in ${productBatches.length} bulk operations`);
 
-    const productPromises = productBatches.map((productBatch, batchIndex) => 
-      runWithConcurrencyLimit(async () => {
+    // Process product tag updates sequentially with delays
+    for (let batchIndex = 0; batchIndex < productBatches.length; batchIndex++) {
+      const productBatch = productBatches[batchIndex];
+      
+      await runWithConcurrencyLimit(async () => {
         console.log(`🏷️  Processing product reset batch ${batchIndex + 1}/${productBatches.length} (${productBatch.length} products)`);
         
         // Use bulk mutation for multiple products
@@ -1553,31 +1582,24 @@ async function resetAllProductPrices() {
           console.error(`❌ Error in product reset batch ${batchIndex + 1}:`, error);
           return { success: false, count: 0 };
         }
-      })
-    );
+      });
+      
+      // Add delay between product tag batches to avoid throttling
+      if (batchIndex < productBatches.length - 1) {
+        console.log('⏱️  Waiting 1.5s between product tag batches to avoid throttling...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
 
-    // Execute all reset operations in parallel
-    console.log(`⚡ Executing all bulk reset operations in parallel...`);
-    const [variantResults, productResults] = await Promise.all([
-      Promise.all(variantPromises),
-      Promise.all(productPromises)
-    ]);
+    console.log(`✅ All bulk reset operations completed sequentially to avoid throttling`);
 
-    // Calculate results
-    const totalVariantsReset = variantResults.reduce((sum, result) => sum + (result.count || 0), 0);
-    const totalProductsReset = productResults.reduce((sum, result) => sum + (result.count || 0), 0);
-    
     const endTime = Date.now();
     const duration = endTime - startTime;
-    const productsPerSecond = Math.round((totalProductsReset / duration) * 1000);
-    const variantsPerSecond = Math.round((totalVariantsReset / duration) * 1000);
 
-    console.log(`🎉 OPTIMIZED BULK RESET COMPLETED!`);
+    console.log(`🎉 THROTTLE-SAFE BULK RESET COMPLETED!`);
     console.log(`⏱️  Total time: ${duration}ms (${(duration/1000).toFixed(2)}s)`);
-    console.log(`📊 Performance: ${productsPerSecond} products/sec, ${variantsPerSecond} variants/sec`);
-    console.log(`✅ Products reset: ${totalProductsReset}/${productTagUpdates.length}`);
-    console.log(`✅ Variants reset: ${totalVariantsReset}/${allVariantUpdates.length}`);
-    console.log(`💯 Success rate: ${Math.round((totalVariantsReset/allVariantUpdates.length)*100)}%`);
+    console.log(`📊 Processed: ${productTagUpdates.length} products, ${allVariantUpdates.length} variants`);
+    console.log(`🚦 Used conservative rate limiting to avoid Shopify throttling`);
 
     // Performance improvement note
     if (duration < 30000) { // Less than 30 seconds
