@@ -826,12 +826,25 @@ async function updateAllProductPrices(discountPercent) {
   const startTime = Date.now();
   console.log(`Timestamp: ${new Date().toISOString()}`);
 
+  // Ensure we have products loaded, if not fetch them
+  if (globalAuctionState.products.length === 0) {
+    console.log('⚠️ No products in memory, fetching all products first...');
+    try {
+      const fetchedProducts = await fetchAllProducts();
+      globalAuctionState.products = fetchedProducts;
+      console.log(`✅ Loaded ${fetchedProducts.length} products into memory`);
+    } catch (error) {
+      console.error('❌ Failed to fetch products:', error);
+      return;
+    }
+  }
+
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
-  console.log(`Found ${validProducts.length} valid products with variants`);
+  console.log(`Found ${validProducts.length} valid products with variants out of ${globalAuctionState.products.length} total products`);
 
   if (validProducts.length === 0) {
-    console.log('No valid products to update prices for.');
+    console.log('❌ No valid products to update prices for.');
     return;
   }
 
@@ -841,10 +854,10 @@ async function updateAllProductPrices(discountPercent) {
   // 3. Reduced delays with intelligent rate limiting
   // 4. Parallel processing of all operations
   
-  const BATCH_SIZE = 20; // Increased from 5 to 20 for better throughput
-  const VARIANT_BATCH_SIZE = 100; // Process up to 100 variants per bulk mutation
-  const BATCH_DELAY_MS = 250; // Reduced from 500ms to 250ms
-  const MAX_CONCURRENT_REQUESTS = 10; // Limit concurrent requests to avoid overwhelming API
+  const BATCH_SIZE = 15; // Optimized batch size for reliability
+  const VARIANT_BATCH_SIZE = 50; // Process up to 50 variants per bulk mutation (safer than 100)
+  const BATCH_DELAY_MS = 200; // Reduced delay for faster processing
+  const MAX_CONCURRENT_REQUESTS = 8; // Optimized concurrent requests
 
   // Create batches for processing
   const batches = [];
@@ -863,15 +876,15 @@ async function updateAllProductPrices(discountPercent) {
     console.log(`📦 Preparing batch ${batchIndex + 1}/${batches.length} (${batch.length} products)`);
 
     for (const product of batch) {
-      try {
-        // Ensure product ID is valid and in the correct format
-        const rawProductId = (product.id || '').toString().replace(/\.0$/, '');
-        const productId = rawProductId.includes('gid://') ? rawProductId : `gid://shopify/Product/${rawProductId}`;
+        try {
+          // Ensure product ID is valid and in the correct format
+          const rawProductId = (product.id || '').toString().replace(/\.0$/, '');
+          const productId = rawProductId.includes('gid://') ? rawProductId : `gid://shopify/Product/${rawProductId}`;
 
         // Prepare product tag updates
-        const tagList = product.tags ? (typeof product.tags === 'string' ? product.tags.split(', ') : []) : [];
-        const filteredTags = tagList.filter(tag => !tag.startsWith('discount:'));
-        filteredTags.push(`discount:${discountPercent}`);
+          const tagList = product.tags ? (typeof product.tags === 'string' ? product.tags.split(', ') : []) : [];
+          const filteredTags = tagList.filter(tag => !tag.startsWith('discount:'));
+          filteredTags.push(`discount:${discountPercent}`);
 
         productTagUpdates.push({
           id: productId,
@@ -879,40 +892,40 @@ async function updateAllProductPrices(discountPercent) {
         });
 
         // Prepare variant price updates
-        const variants = (product.variants || []).map(variant => {
-          let variantId;
-          let originalPrice;
-          let compareAtPrice;
+          const variants = (product.variants || []).map(variant => {
+            let variantId;
+            let originalPrice;
+            let compareAtPrice;
 
-          if (variant.admin_graphql_api_id) {
-            variantId = variant.admin_graphql_api_id;
-            originalPrice = variant.compare_at_price || variant.price;
-            compareAtPrice = variant.compare_at_price || variant.price;
-          } else if (variant.node) {
-            variantId = variant.node.id;
-            originalPrice = variant.node.compareAtPrice || variant.node.price;
-            compareAtPrice = variant.node.compareAtPrice || variant.node.price;
-          } else {
-            const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
-            variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
-            originalPrice = variant.compare_at_price || variant.price;
-            compareAtPrice = variant.compare_at_price || variant.price;
-          }
+            if (variant.admin_graphql_api_id) {
+              variantId = variant.admin_graphql_api_id;
+              originalPrice = variant.compare_at_price || variant.price;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            } else if (variant.node) {
+              variantId = variant.node.id;
+              originalPrice = variant.node.compareAtPrice || variant.node.price;
+              compareAtPrice = variant.node.compareAtPrice || variant.node.price;
+            } else {
+              const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
+              variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
+              originalPrice = variant.compare_at_price || variant.price;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            }
 
-          const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
+            const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
 
-          return {
-            id: variantId,
-            price: discountedPrice,
-            compareAtPrice: compareAtPrice
-          };
+            return {
+              id: variantId,
+              price: discountedPrice,
+              compareAtPrice: compareAtPrice
+            };
         }).filter(v => v.id);
 
         allVariantUpdates.push(...variants);
         processedCount++;
 
-      } catch (error) {
-        console.error(`Error preparing product data for ${product.id || 'unknown'}:`, error);
+        } catch (error) {
+          console.error(`Error preparing product data for ${product.id || 'unknown'}:`, error);
       }
     }
   }
@@ -954,7 +967,7 @@ async function updateAllProductPrices(discountPercent) {
         
         // Use bulk mutation for multiple variants
         const bulkVariantMutation = `
-          mutation bulkProductVariantUpdate($variants: [ProductVariantInput!]!) {
+          mutation bulkProductVariantUpdate {
             ${variantBatch.map((variant, index) => `
               variant${index}: productVariantUpdate(input: {
                 id: "${variant.id}"
@@ -977,18 +990,29 @@ async function updateAllProductPrices(discountPercent) {
         try {
           const result = await shopifyGraphQLRequest(bulkVariantMutation, {});
           
-          // Check for errors in any of the variant updates
+          // Enhanced error checking and logging
+          let successCount = 0;
+          let errorCount = 0;
+          
           for (let i = 0; i < variantBatch.length; i++) {
             const variantResult = result.data?.[`variant${i}`];
             if (variantResult?.userErrors?.length > 0) {
-              console.error(`Variant ${variantBatch[i].id} update failed:`, variantResult.userErrors);
+              console.error(`❌ Variant ${variantBatch[i].id} update failed:`, variantResult.userErrors);
+              errorCount++;
+            } else if (variantResult?.productVariant?.id) {
+              console.log(`✅ Updated variant ${variantResult.productVariant.id} to price ${variantResult.productVariant.price}`);
+              successCount++;
+            } else {
+              console.warn(`⚠️ Unexpected result for variant ${variantBatch[i].id}:`, variantResult);
+              errorCount++;
             }
           }
           
-          console.log(`✅ Completed variant batch ${batchIndex + 1}/${variantBatches.length}`);
-          return { success: true, count: variantBatch.length };
+          console.log(`✅ Completed variant batch ${batchIndex + 1}/${variantBatches.length}: ${successCount} success, ${errorCount} errors`);
+          return { success: true, count: successCount };
         } catch (error) {
-          console.error(`❌ Error in variant batch ${batchIndex + 1}:`, error);
+          console.error(`❌ Critical error in variant batch ${batchIndex + 1}:`, error);
+          console.error(`❌ Mutation that failed:`, bulkVariantMutation.substring(0, 500) + '...');
           
           // Fallback to individual variant updates for this batch
           console.log(`🔄 Falling back to individual updates for batch ${batchIndex + 1}`);
@@ -1004,11 +1028,11 @@ async function updateAllProductPrices(discountPercent) {
               `;
               
               await shopifyGraphQLRequest(singleVariantMutation, {
-                input: {
-                  id: variant.id,
-                  price: variant.price,
-                  compareAtPrice: variant.compareAtPrice
-                }
+              input: {
+                id: variant.id,
+                price: variant.price,
+                compareAtPrice: variant.compareAtPrice
+              }
               });
               
               return { success: true };
@@ -1041,7 +1065,7 @@ async function updateAllProductPrices(discountPercent) {
         
         // Use bulk mutation for multiple products
         const bulkProductMutation = `
-          mutation bulkProductUpdate($products: [ProductInput!]!) {
+          mutation bulkProductUpdate {
             ${productBatch.map((product, index) => `
               product${index}: productUpdate(product: {
                 id: "${product.id}"
@@ -1139,15 +1163,15 @@ async function updateAllProductPricesOriginal(discountPercent) {
     console.log('No valid products to update prices for.');
     return;
   }
-
+  
   const BATCH_SIZE = 5;
   const BATCH_DELAY_MS = 500;
-
+  
   const batches = [];
   for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
     batches.push(validProducts.slice(i, i + BATCH_SIZE));
   }
-
+  
   for (const [index, batch] of batches.entries()) {
     console.log(`Processing fallback batch ${index + 1}/${batches.length}`);
 
@@ -1232,19 +1256,32 @@ async function resetAllProductPrices() {
   console.log(`🔄 OPTIMIZED: Starting fast price reset operation for ${globalAuctionState.products.length} products`);
   const startTime = Date.now();
   
+  // Ensure we have products loaded, if not fetch them
+  if (globalAuctionState.products.length === 0) {
+    console.log('⚠️ No products in memory, fetching all products first...');
+    try {
+      const fetchedProducts = await fetchAllProducts();
+      globalAuctionState.products = fetchedProducts;
+      console.log(`✅ Loaded ${fetchedProducts.length} products into memory`);
+    } catch (error) {
+      console.error('❌ Failed to fetch products:', error);
+      return;
+    }
+  }
+
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
-  console.log(`Found ${validProducts.length} valid products with variants`);
+  console.log(`Found ${validProducts.length} valid products with variants out of ${globalAuctionState.products.length} total products`);
   
   if (validProducts.length === 0) {
-    console.log('No valid products to reset prices for.');
+    console.log('❌ No valid products to reset prices for.');
     return;
   }
   
   // Use the same optimizations as updateAllProductPrices
-  const BATCH_SIZE = 20;
-  const VARIANT_BATCH_SIZE = 100;
-  const MAX_CONCURRENT_REQUESTS = 10;
+  const BATCH_SIZE = 15;
+  const VARIANT_BATCH_SIZE = 50;
+  const MAX_CONCURRENT_REQUESTS = 8;
   
   let allVariantUpdates = [];
   let productTagUpdates = [];
@@ -1255,46 +1292,46 @@ async function resetAllProductPrices() {
   // PHASE 1: Prepare all updates in memory first
   for (const product of validProducts) {
     try {
-      const rawProductId = (product.id || '').toString().replace(/\.0$/, '');
-      const productId = rawProductId.includes('gid://') ? rawProductId : `gid://shopify/Product/${rawProductId}`;
-      
-      // Remove discount tags
-      const tagList = product.tags ? (typeof product.tags === 'string' ? product.tags.split(', ') : []) : [];
-      const filteredTags = tagList.filter(tag => !tag.startsWith('discount:'));
-      
+          const rawProductId = (product.id || '').toString().replace(/\.0$/, '');
+          const productId = rawProductId.includes('gid://') ? rawProductId : `gid://shopify/Product/${rawProductId}`;
+          
+          // Remove discount tags
+          const tagList = product.tags ? (typeof product.tags === 'string' ? product.tags.split(', ') : []) : [];
+          const filteredTags = tagList.filter(tag => !tag.startsWith('discount:'));
+          
       productTagUpdates.push({
         id: productId,
         tags: filteredTags.join(', ')
       });
       
       // Prepare variant price resets
-      const variants = (product.variants || []).map(variant => {
-        let variantId;
-        let compareAtPrice;
-        
-        if (variant.admin_graphql_api_id) {
-          variantId = variant.admin_graphql_api_id;
-          compareAtPrice = variant.compare_at_price || variant.price;
-        } else if (variant.node) {
-          variantId = variant.node.id;
-          compareAtPrice = variant.node.compareAtPrice || variant.node.price;
-        } else {
-          const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
-          variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
-          compareAtPrice = variant.compare_at_price || variant.price;
-        }
-        
-        return {
-          id: variantId,
-          price: compareAtPrice,
-          compareAtPrice: compareAtPrice
-        };
-      }).filter(v => v.id);
-      
+          const variants = (product.variants || []).map(variant => {
+            let variantId;
+            let compareAtPrice;
+            
+            if (variant.admin_graphql_api_id) {
+              variantId = variant.admin_graphql_api_id;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            } else if (variant.node) {
+              variantId = variant.node.id;
+              compareAtPrice = variant.node.compareAtPrice || variant.node.price;
+            } else {
+              const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
+              variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            }
+            
+            return {
+              id: variantId,
+              price: compareAtPrice,
+              compareAtPrice: compareAtPrice
+            };
+          }).filter(v => v.id);
+          
       allVariantUpdates.push(...variants);
       processedCount++;
       
-    } catch (error) {
+        } catch (error) {
       console.error(`Error preparing reset data for ${product.id || 'unknown'}:`, error);
     }
   }
@@ -1336,7 +1373,7 @@ async function resetAllProductPrices() {
         
         // Use bulk mutation for multiple variants
         const bulkVariantMutation = `
-          mutation bulkProductVariantReset($variants: [ProductVariantInput!]!) {
+          mutation bulkProductVariantReset {
             ${variantBatch.map((variant, index) => `
               variant${index}: productVariantUpdate(input: {
                 id: "${variant.id}"
@@ -1386,11 +1423,11 @@ async function resetAllProductPrices() {
               `;
               
               await shopifyGraphQLRequest(singleVariantMutation, {
-                input: {
-                  id: variant.id,
-                  price: variant.price,
-                  compareAtPrice: variant.compareAtPrice
-                }
+              input: {
+                id: variant.id,
+                price: variant.price,
+                compareAtPrice: variant.compareAtPrice
+              }
               });
               
               return { success: true };
@@ -1423,7 +1460,7 @@ async function resetAllProductPrices() {
         
         // Use bulk mutation for multiple products
         const bulkProductMutation = `
-          mutation bulkProductTagReset($products: [ProductInput!]!) {
+          mutation bulkProductTagReset {
             ${productBatch.map((product, index) => `
               product${index}: productUpdate(product: {
                 id: "${product.id}"
@@ -1492,7 +1529,7 @@ async function resetAllProductPrices() {
       console.log(`⚡ SPEED IMPROVEMENT: Reset completed in under 1 minute!`);
     }
 
-  } catch (error) {
+    } catch (error) {
     console.error(`❌ Critical error in bulk reset operations:`, error);
     
     // Fallback to original method if bulk operations fail completely
