@@ -844,9 +844,9 @@ app.post('/stop-all-auctions', async (req, res) => {
   }
 });
 
-// OPTIMIZED helper function to update all products with the same discount percentage using bulk operations
+// 2025 MODERN BULK OPERATIONS - Fast price update using productVariantsBulkUpdate
 async function updateAllProductPrices(discountPercent) {
-  console.log(`🚀 OPTIMIZED: Starting fast price update operation for all products to ${discountPercent}% discount`);
+  console.log(`🚀 2025 BULK OPERATIONS: Ultra-fast price update using productVariantsBulkUpdate API`);
   const startTime = Date.now();
   console.log(`Timestamp: ${new Date().toISOString()}`);
 
@@ -862,6 +862,161 @@ async function updateAllProductPrices(discountPercent) {
       return;
     }
   }
+
+  // Try modern bulk operations first, fallback to old method if needed
+  try {
+    return await updateAllProductPricesModernBulk(discountPercent);
+  } catch (error) {
+    console.error('❌ Modern bulk operations failed, falling back to legacy method:', error);
+    return await updateAllProductPricesLegacy(discountPercent);
+  }
+}
+
+// NEW: 2025 Modern Bulk Operations (up to 2,048 variants per operation!)
+async function updateAllProductPricesModernBulk(discountPercent) {
+  console.log(`🚀 MODERN BULK: Using 2025 productVariantsBulkUpdate API`);
+  const startTime = Date.now();
+
+  // Filter out products without variants
+  const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
+  console.log(`Found ${validProducts.length} valid products with variants`);
+
+  if (validProducts.length === 0) {
+    console.log('❌ No valid products to update.');
+    return;
+  }
+
+  // Prepare all variant updates for bulk operation
+  const allVariantUpdates = [];
+  let totalVariantsCount = 0;
+
+  for (const product of validProducts) {
+    try {
+      // Handle both GraphQL edges format and REST format
+      const variants = product.variants.edges ? 
+        product.variants.edges.map(edge => edge.node) : 
+        product.variants;
+
+      for (const variant of variants) {
+        const variantId = variant.admin_graphql_api_id || variant.id;
+        const originalPrice = variant.compare_at_price || variant.compareAtPrice || variant.price;
+        const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
+
+        allVariantUpdates.push({
+          id: variantId,
+          price: discountedPrice,
+          compareAtPrice: originalPrice
+        });
+        totalVariantsCount++;
+      }
+    } catch (error) {
+      console.error(`❌ Error preparing product ${product.id}:`, error);
+    }
+  }
+
+  console.log(`💰 Prepared ${allVariantUpdates.length} variant updates for bulk operation`);
+
+  // Check bulk operation limits (2,048 variants max per operation)
+  const BULK_LIMIT = 2000; // Use 2000 to be safe
+  
+  if (allVariantUpdates.length <= BULK_LIMIT) {
+    // Single bulk operation
+    console.log(`✅ Using single bulk operation for ${allVariantUpdates.length} variants`);
+    const result = await executeBulkVariantUpdate(allVariantUpdates, discountPercent);
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`🎉 MODERN BULK COMPLETED in ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+    console.log(`⚡ Speed: ${Math.round((allVariantUpdates.length / duration) * 1000)} variants/second`);
+    
+    // Record performance metrics
+    recordPerformanceMetric(duration, validProducts.length, allVariantUpdates.length);
+    
+    return result;
+  } else {
+    // Multiple bulk operations for large datasets
+    console.log(`📦 Splitting ${allVariantUpdates.length} variants into chunks of ${BULK_LIMIT}`);
+    
+    const chunks = [];
+    for (let i = 0; i < allVariantUpdates.length; i += BULK_LIMIT) {
+      chunks.push(allVariantUpdates.slice(i, i + BULK_LIMIT));
+    }
+    
+    const results = [];
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`📦 Processing bulk chunk ${i + 1}/${chunks.length} (${chunks[i].length} variants)`);
+      const result = await executeBulkVariantUpdate(chunks[i], discountPercent);
+      results.push(result);
+      
+      // Small delay between chunks
+      if (i < chunks.length - 1) {
+        console.log('⏱️ Waiting 2s between bulk operations...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`🎉 ALL MODERN BULK OPERATIONS COMPLETED in ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+    console.log(`⚡ Speed: ${Math.round((allVariantUpdates.length / duration) * 1000)} variants/second`);
+    
+    // Record performance metrics
+    recordPerformanceMetric(duration, validProducts.length, allVariantUpdates.length);
+    
+    return results;
+  }
+}
+
+// Execute a single bulk variant update using 2025 API
+async function executeBulkVariantUpdate(variantUpdates, discountPercent) {
+  console.log(`🚀 Executing bulk variant update for ${variantUpdates.length} variants`);
+  
+  const mutation = `
+    mutation productVariantsBulkUpdate($productVariants: [ProductVariantInput!]!) {
+      productVariantsBulkUpdate(productVariants: $productVariants) {
+        productVariants {
+          id
+          price
+          compareAtPrice
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    productVariants: variantUpdates
+  };
+
+  try {
+    const response = await shopifyGraphQLRequest(mutation, variables);
+    
+    if (response.data.productVariantsBulkUpdate.userErrors.length > 0) {
+      console.error('❌ Bulk update errors:', response.data.productVariantsBulkUpdate.userErrors);
+      throw new Error(`Bulk update failed: ${JSON.stringify(response.data.productVariantsBulkUpdate.userErrors)}`);
+    }
+
+    const updatedVariants = response.data.productVariantsBulkUpdate.productVariants;
+    console.log(`✅ Successfully updated ${updatedVariants.length} variants in bulk operation`);
+    
+    return {
+      success: true,
+      updatedCount: updatedVariants.length,
+      variants: updatedVariants
+    };
+  } catch (error) {
+    console.error('❌ Bulk variant update failed:', error);
+    throw error;
+  }
+}
+
+// LEGACY: Keep the old optimized method as fallback
+async function updateAllProductPricesLegacy(discountPercent) {
+  console.log(`🔄 FALLBACK: Using legacy optimized method for ${discountPercent}% discount`);
+  const startTime = Date.now();
 
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
@@ -1301,9 +1456,9 @@ async function updateAllProductPricesOriginal(discountPercent) {
   }
 }
 
-// OPTIMIZED helper function to reset all product prices to original using bulk operations
+// 2025 MODERN BULK OPERATIONS - Fast price reset using productVariantsBulkUpdate
 async function resetAllProductPrices() {
-  console.log(`🔄 OPTIMIZED: Starting fast price reset operation for ${globalAuctionState.products.length} products`);
+  console.log(`🔄 2025 BULK OPERATIONS: Ultra-fast price reset using productVariantsBulkUpdate API`);
   const startTime = Date.now();
   
   // Ensure we have products loaded, if not fetch them
@@ -1318,6 +1473,106 @@ async function resetAllProductPrices() {
       return;
     }
   }
+
+  // Try modern bulk operations first, fallback to old method if needed
+  try {
+    return await resetAllProductPricesModernBulk();
+  } catch (error) {
+    console.error('❌ Modern bulk reset failed, falling back to legacy method:', error);
+    return await resetAllProductPricesLegacy();
+  }
+}
+
+// NEW: 2025 Modern Bulk Reset Operations  
+async function resetAllProductPricesModernBulk() {
+  console.log(`🔄 MODERN BULK RESET: Using 2025 productVariantsBulkUpdate API`);
+  const startTime = Date.now();
+
+  // Filter out products without variants
+  const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
+  console.log(`Found ${validProducts.length} valid products with variants`);
+
+  if (validProducts.length === 0) {
+    console.log('❌ No valid products to reset.');
+    return;
+  }
+
+  // Prepare all variant resets for bulk operation
+  const allVariantResets = [];
+
+  for (const product of validProducts) {
+    try {
+      // Handle both GraphQL edges format and REST format
+      const variants = product.variants.edges ? 
+        product.variants.edges.map(edge => edge.node) : 
+        product.variants;
+
+      for (const variant of variants) {
+        const variantId = variant.admin_graphql_api_id || variant.id;
+        const originalPrice = variant.compare_at_price || variant.compareAtPrice || variant.price;
+
+        allVariantResets.push({
+          id: variantId,
+          price: originalPrice,
+          compareAtPrice: originalPrice
+        });
+      }
+    } catch (error) {
+      console.error(`❌ Error preparing reset for product ${product.id}:`, error);
+    }
+  }
+
+  console.log(`🔄 Prepared ${allVariantResets.length} variant resets for bulk operation`);
+
+  // Check bulk operation limits (2,048 variants max per operation)
+  const BULK_LIMIT = 2000; // Use 2000 to be safe
+  
+  if (allVariantResets.length <= BULK_LIMIT) {
+    // Single bulk operation
+    console.log(`✅ Using single bulk reset operation for ${allVariantResets.length} variants`);
+    const result = await executeBulkVariantUpdate(allVariantResets, 0);
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`🎉 MODERN BULK RESET COMPLETED in ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+    console.log(`⚡ Speed: ${Math.round((allVariantResets.length / duration) * 1000)} variants/second`);
+    
+    return result;
+  } else {
+    // Multiple bulk operations for large datasets
+    console.log(`📦 Splitting ${allVariantResets.length} variants into reset chunks of ${BULK_LIMIT}`);
+    
+    const chunks = [];
+    for (let i = 0; i < allVariantResets.length; i += BULK_LIMIT) {
+      chunks.push(allVariantResets.slice(i, i + BULK_LIMIT));
+    }
+    
+    const results = [];
+    for (let i = 0; i < chunks.length; i++) {
+      console.log(`📦 Processing bulk reset chunk ${i + 1}/${chunks.length} (${chunks[i].length} variants)`);
+      const result = await executeBulkVariantUpdate(chunks[i], 0);
+      results.push(result);
+      
+      // Small delay between chunks
+      if (i < chunks.length - 1) {
+        console.log('⏱️ Waiting 2s between bulk reset operations...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    console.log(`🎉 ALL MODERN BULK RESETS COMPLETED in ${duration}ms (${(duration/1000).toFixed(2)}s)`);
+    console.log(`⚡ Speed: ${Math.round((allVariantResets.length / duration) * 1000)} variants/second`);
+    
+    return results;
+  }
+}
+
+// LEGACY: Keep the old reset method as fallback
+async function resetAllProductPricesLegacy() {
+  console.log(`🔄 FALLBACK: Using legacy reset method`);
+  const startTime = Date.now();
 
   // Filter out products without variants to avoid errors
   const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
