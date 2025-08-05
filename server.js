@@ -322,30 +322,26 @@ const query = `
       const products = response.data.products.edges.map(edge => {
         const product = edge.node;
         
-        // Filter variants: only include those that are available for sale and have inventory
-        const eligibleVariants = product.variants.edges.filter(variantEdge => {
+        // Check if product has AT LEAST ONE variant with stock > 0
+        const hasStockVariants = product.variants.edges.some(variantEdge => {
           const variant = variantEdge.node;
-          const isAvailable = variant.availableForSale;
-          const hasStock = variant.inventoryQuantity > 0;
-          const hasPrice = variant.price && parseFloat(variant.price) > 0;
-          
-          return isAvailable && hasStock && hasPrice;
+          return variant.inventoryQuantity > 0;
         });
         
-        if (eligibleVariants.length === 0) {
-          console.log(`⏭️  Skipping product: ${product.title} (no eligible variants)`);
+        if (!hasStockVariants) {
+          console.log(`⏭️  Skipping product: ${product.title} (NO variants with stock > 0)`);
           return null; // Will be filtered out
         }
         
-        console.log(`📦 Converting product: ${product.title} with ${eligibleVariants.length}/${product.variants.edges.length} eligible variants`);
+        console.log(`📦 Converting product: ${product.title} with ${product.variants.edges.length} variants (has stock variants)`);
         
-        // Convert GraphQL format to match the REST API format that the existing code expects
+        // Convert ALL variants (including out-of-stock ones) since product has at least one with stock
         return {
           id: product.id.split('/').pop(),
           title: product.title,
           tags: product.tags,
           status: product.status,
-          variants: eligibleVariants.map(variantEdge => {
+          variants: product.variants.edges.map(variantEdge => {
             const variant = variantEdge.node;
             const convertedVariant = {
               id: variant.id.split('/').pop(),
@@ -355,7 +351,7 @@ const query = `
               available_for_sale: variant.availableForSale,
               inventory_quantity: variant.inventoryQuantity
             };
-            console.log(`  🔧 Eligible variant: ${convertedVariant.admin_graphql_api_id} price=${convertedVariant.price} stock=${convertedVariant.inventory_quantity}`);
+            console.log(`  🔧 Including variant: ${convertedVariant.admin_graphql_api_id} price=${convertedVariant.price} stock=${convertedVariant.inventory_quantity}`);
             return convertedVariant;
           })
         };
@@ -909,17 +905,13 @@ async function updateAllProductPricesModernBulk(discountPercent) {
       return false;
     }
     
-    // Check if product has any eligible variants (available for sale with stock)
-    const eligibleVariants = p.variants.filter(v => {
-      const isAvailable = v.available_for_sale !== false; // Default to true if not specified
-      const hasStock = !v.inventory_quantity || v.inventory_quantity > 0; // Default to true if not specified
-      const hasPrice = v.price && parseFloat(v.price) > 0;
-      
-      return isAvailable && hasStock && hasPrice;
+    // Check if product has AT LEAST ONE variant with stock > 0
+    const hasStockVariants = p.variants.some(v => {
+      return v.inventory_quantity > 0;
     });
     
-    if (eligibleVariants.length === 0) {
-      console.log(`⏭️  Skipping product: ${p.title} (no variants available for sale with stock)`);
+    if (!hasStockVariants) {
+      console.log(`⏭️  Skipping product: ${p.title} (NO variants with stock > 0)`);
       return false;
     }
     
@@ -945,13 +937,11 @@ async function updateAllProductPricesModernBulk(discountPercent) {
         product.variants;
 
       for (const variant of variants) {
-        // Additional variant-level filtering for safety
-        const isAvailable = variant.available_for_sale !== false;
-        const hasStock = !variant.inventory_quantity || variant.inventory_quantity > 0;
+        // Only skip variants with invalid prices (since product already passed stock check)
         const hasPrice = variant.price && parseFloat(variant.price) > 0;
         
-        if (!isAvailable || !hasStock || !hasPrice) {
-          console.log(`  ⏭️ Skipping variant ${variant.admin_graphql_api_id || variant.id}: available=${isAvailable}, stock=${variant.inventory_quantity}, price=${variant.price}`);
+        if (!hasPrice) {
+          console.log(`  ⏭️ Skipping variant ${variant.admin_graphql_api_id || variant.id}: invalid price=${variant.price}`);
           continue;
         }
         
@@ -965,6 +955,8 @@ async function updateAllProductPricesModernBulk(discountPercent) {
           compareAtPrice: originalPrice
         });
         totalVariantsCount++;
+        
+        console.log(`  💰 Including variant: ${variantId} stock=${variant.inventory_quantity} price=${originalPrice} → ${discountedPrice}`);
       }
     } catch (error) {
       console.error(`❌ Error preparing product ${product.id}:`, error);
@@ -1641,17 +1633,13 @@ async function resetAllProductPricesModernBulk() {
       return false;
     }
     
-    // Check if product has any eligible variants (available for sale with stock)
-    const eligibleVariants = p.variants.filter(v => {
-      const isAvailable = v.available_for_sale !== false; // Default to true if not specified
-      const hasStock = !v.inventory_quantity || v.inventory_quantity > 0; // Default to true if not specified
-      const hasPrice = v.price && parseFloat(v.price) > 0;
-      
-      return isAvailable && hasStock && hasPrice;
+    // Check if product has AT LEAST ONE variant with stock > 0
+    const hasStockVariants = p.variants.some(v => {
+      return v.inventory_quantity > 0;
     });
     
-    if (eligibleVariants.length === 0) {
-      console.log(`⏭️  Skipping product in reset: ${p.title} (no variants available for sale with stock)`);
+    if (!hasStockVariants) {
+      console.log(`⏭️  Skipping product in reset: ${p.title} (NO variants with stock > 0)`);
       return false;
     }
     
@@ -1676,13 +1664,11 @@ async function resetAllProductPricesModernBulk() {
         product.variants;
 
       for (const variant of variants) {
-        // Additional variant-level filtering for safety in reset
-        const isAvailable = variant.available_for_sale !== false;
-        const hasStock = !variant.inventory_quantity || variant.inventory_quantity > 0;
+        // Only skip variants with invalid prices (since product already passed stock check)
         const hasPrice = variant.price && parseFloat(variant.price) > 0;
         
-        if (!isAvailable || !hasStock || !hasPrice) {
-          console.log(`  ⏭️ Skipping variant reset ${variant.admin_graphql_api_id || variant.id}: available=${isAvailable}, stock=${variant.inventory_quantity}, price=${variant.price}`);
+        if (!hasPrice) {
+          console.log(`  ⏭️ Skipping variant reset ${variant.admin_graphql_api_id || variant.id}: invalid price=${variant.price}`);
           continue;
         }
         
@@ -1694,6 +1680,8 @@ async function resetAllProductPricesModernBulk() {
           price: originalPrice,
           compareAtPrice: originalPrice
         });
+        
+        console.log(`  🔄 Including variant reset: ${variantId} stock=${variant.inventory_quantity} price=${originalPrice}`);
       }
     } catch (error) {
       console.error(`❌ Error preparing reset for product ${product.id}:`, error);
