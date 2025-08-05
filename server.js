@@ -203,7 +203,7 @@ async function shopifyRequest(endpoint, method = 'GET', data = null) {
 // Enhanced GraphQL helper with rate limiting and retry logic
 async function shopifyGraphQLRequest(query, variables = {}, retryCount = 0) {
   const shopUrl = process.env.SHOPIFY_SHOP_URL.replace('https://', '').replace('http://', '').trim();
-  const url = `https://${shopUrl}/admin/api/2024-01/graphql.json`;
+  const url = `https://${shopUrl}/admin/api/2024-04/graphql.json`;
   
   // Reduce logging spam for retries
   if (retryCount === 0) {
@@ -269,19 +269,19 @@ async function shopifyGraphQLRequest(query, variables = {}, retryCount = 0) {
   }
 }
 
-// Helper function to fetch all products with GraphQL pagination
+// Helper function to fetch all products with GraphQL pagination (ACTIVE products only)
 async function fetchAllProducts() {
-  console.log('Fetching all products with GraphQL cursor-based pagination...');
+  console.log('Fetching all ACTIVE products with stock using GraphQL cursor-based pagination...');
   let allProducts = [];
   let hasNextPage = true;
   let cursor = null;
   const PER_PAGE = 50; // GraphQL can handle larger batches
   
   while (hasNextPage) {
-    // Create a GraphQL query with proper cursor-based pagination
-    const query = `
+    // Create a GraphQL query with proper cursor-based pagination - ONLY ACTIVE PRODUCTS
+const query = `
       query getProducts($first: Int!, $after: String) {
-        products(first: $first, after: $after) {
+        products(first: $first, after: $after, query: "status:active") {
           pageInfo {
             hasNextPage
             endCursor
@@ -291,12 +291,15 @@ async function fetchAllProducts() {
               id
               title
               tags
+              status
               variants(first: 50) {
                 edges {
                   node {
                     id
                     price
                     compareAtPrice
+                    availableForSale
+                    inventoryQuantity
                   }
                 }
               }
@@ -304,7 +307,7 @@ async function fetchAllProducts() {
           }
         }
       }
-    `;
+`;
     
     const variables = {
       first: PER_PAGE,
@@ -315,29 +318,48 @@ async function fetchAllProducts() {
       console.log(`Fetching batch of ${PER_PAGE} products${cursor ? ' after cursor' : ''}...`);
       const response = await shopifyGraphQLRequest(query, variables);
       
-      // Extract products from the GraphQL response
+      // Extract products from the GraphQL response and filter for eligible variants
       const products = response.data.products.edges.map(edge => {
         const product = edge.node;
         
-        console.log(`📦 Converting product: ${product.title} with ${product.variants.edges.length} variants`);
+        // Filter variants: only include those that are available for sale and have inventory
+        const eligibleVariants = product.variants.edges.filter(variantEdge => {
+          const variant = variantEdge.node;
+          const isAvailable = variant.availableForSale;
+          const hasStock = variant.inventoryQuantity > 0;
+          const hasPrice = variant.price && parseFloat(variant.price) > 0;
+          
+          return isAvailable && hasStock && hasPrice;
+        });
+        
+        if (eligibleVariants.length === 0) {
+          console.log(`⏭️  Skipping product: ${product.title} (no eligible variants)`);
+          return null; // Will be filtered out
+        }
+        
+        console.log(`📦 Converting product: ${product.title} with ${eligibleVariants.length}/${product.variants.edges.length} eligible variants`);
         
         // Convert GraphQL format to match the REST API format that the existing code expects
         return {
           id: product.id.split('/').pop(),
           title: product.title,
           tags: product.tags,
-          variants: product.variants.edges.map(variantEdge => {
+          status: product.status,
+          variants: eligibleVariants.map(variantEdge => {
+            const variant = variantEdge.node;
             const convertedVariant = {
-              id: variantEdge.node.id.split('/').pop(),
-              admin_graphql_api_id: variantEdge.node.id,
-              price: variantEdge.node.price,
-              compare_at_price: variantEdge.node.compareAtPrice
+              id: variant.id.split('/').pop(),
+              admin_graphql_api_id: variant.id,
+              price: variant.price,
+              compare_at_price: variant.compareAtPrice,
+              available_for_sale: variant.availableForSale,
+              inventory_quantity: variant.inventoryQuantity
             };
-            console.log(`  🔧 Converted variant: ${convertedVariant.admin_graphql_api_id} price=${convertedVariant.price} compare_at=${convertedVariant.compare_at_price}`);
+            console.log(`  🔧 Eligible variant: ${convertedVariant.admin_graphql_api_id} price=${convertedVariant.price} stock=${convertedVariant.inventory_quantity}`);
             return convertedVariant;
           })
         };
-      });
+      }).filter(product => product !== null); // Remove products with no eligible variants
       
       console.log(`Fetched ${products.length} products`);
       allProducts = [...allProducts, ...products];
@@ -877,12 +899,37 @@ async function updateAllProductPricesModernBulk(discountPercent) {
   console.log(`🚀 MODERN BULK: Using 2025 productVariantsBulkUpdate API`);
   const startTime = Date.now();
 
-  // Filter out products without variants
-  const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
-  console.log(`Found ${validProducts.length} valid products with variants`);
+  // Filter out products without variants and ensure they're eligible for updates
+  const validProducts = globalAuctionState.products.filter(p => {
+    if (!p || !p.variants || p.variants.length === 0) return false;
+    
+    // Skip draft products 
+    if (p.status && p.status.toLowerCase() === 'draft') {
+      console.log(`⏭️  Skipping DRAFT product: ${p.title}`);
+      return false;
+    }
+    
+    // Check if product has any eligible variants (available for sale with stock)
+    const eligibleVariants = p.variants.filter(v => {
+      const isAvailable = v.available_for_sale !== false; // Default to true if not specified
+      const hasStock = !v.inventory_quantity || v.inventory_quantity > 0; // Default to true if not specified
+      const hasPrice = v.price && parseFloat(v.price) > 0;
+      
+      return isAvailable && hasStock && hasPrice;
+    });
+    
+    if (eligibleVariants.length === 0) {
+      console.log(`⏭️  Skipping product: ${p.title} (no variants available for sale with stock)`);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  console.log(`Found ${validProducts.length} eligible products with variants (active, in-stock)`);
 
   if (validProducts.length === 0) {
-    console.log('❌ No valid products to update.');
+    console.log('❌ No eligible products to update (all are draft or out of stock).');
     return;
   }
 
@@ -898,6 +945,16 @@ async function updateAllProductPricesModernBulk(discountPercent) {
         product.variants;
 
       for (const variant of variants) {
+        // Additional variant-level filtering for safety
+        const isAvailable = variant.available_for_sale !== false;
+        const hasStock = !variant.inventory_quantity || variant.inventory_quantity > 0;
+        const hasPrice = variant.price && parseFloat(variant.price) > 0;
+        
+        if (!isAvailable || !hasStock || !hasPrice) {
+          console.log(`  ⏭️ Skipping variant ${variant.admin_graphql_api_id || variant.id}: available=${isAvailable}, stock=${variant.inventory_quantity}, price=${variant.price}`);
+          continue;
+        }
+        
         const variantId = variant.admin_graphql_api_id || variant.id;
         const originalPrice = variant.compare_at_price || variant.compareAtPrice || variant.price;
         const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
@@ -967,50 +1024,136 @@ async function updateAllProductPricesModernBulk(discountPercent) {
   }
 }
 
-// Execute a single bulk variant update using 2025 API
+// Execute a single bulk variant update using 2024-04+ API  
 async function executeBulkVariantUpdate(variantUpdates, discountPercent) {
   console.log(`🚀 Executing bulk variant update for ${variantUpdates.length} variants`);
   
-  const mutation = `
-    mutation productVariantsBulkUpdate($productVariants: [ProductVariantInput!]!) {
-      productVariantsBulkUpdate(productVariants: $productVariants) {
-        productVariants {
-          id
-          price
-          compareAtPrice
-        }
-        userErrors {
-          field
-          message
+  // Try the modern bulk update first
+  try {
+    const mutation = `
+      mutation productVariantsBulkUpdate($variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(variants: $variants) {
+          productVariants {
+            id
+            price
+            compareAtPrice
+          }
+          userErrors {
+            field
+            message
+          }
         }
       }
-    }
-  `;
+    `;
 
-  const variables = {
-    productVariants: variantUpdates
-  };
+    const variables = {
+      variants: variantUpdates.map(variant => ({
+        id: variant.id,
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice
+      }))
+    };
 
-  try {
     const response = await shopifyGraphQLRequest(mutation, variables);
     
-    if (response.data.productVariantsBulkUpdate.userErrors.length > 0) {
-      console.error('❌ Bulk update errors:', response.data.productVariantsBulkUpdate.userErrors);
-      throw new Error(`Bulk update failed: ${JSON.stringify(response.data.productVariantsBulkUpdate.userErrors)}`);
+    if (response.data?.productVariantsBulkUpdate?.userErrors?.length > 0) {
+      console.error('❌ Modern bulk update errors:', response.data.productVariantsBulkUpdate.userErrors);
+      throw new Error(`Modern bulk update failed: ${JSON.stringify(response.data.productVariantsBulkUpdate.userErrors)}`);
     }
 
-    const updatedVariants = response.data.productVariantsBulkUpdate.productVariants;
-    console.log(`✅ Successfully updated ${updatedVariants.length} variants in bulk operation`);
+    if (response.data?.productVariantsBulkUpdate?.productVariants) {
+      const updatedVariants = response.data.productVariantsBulkUpdate.productVariants;
+      console.log(`✅ Modern bulk update successful: ${updatedVariants.length} variants updated`);
+      
+      return {
+        success: true,
+        updatedCount: updatedVariants.length,
+        variants: updatedVariants
+      };
+    }
     
-    return {
-      success: true,
-      updatedCount: updatedVariants.length,
-      variants: updatedVariants
-    };
+    throw new Error('No productVariants in response');
   } catch (error) {
-    console.error('❌ Bulk variant update failed:', error);
-    throw error;
+    console.error('❌ Modern bulk update failed, falling back to individual updates:', error.message);
+    
+    // Fallback to individual variant updates (guaranteed to work)
+    return await executeIndividualVariantUpdates(variantUpdates, discountPercent);
   }
+}
+
+// Fallback: Individual variant updates (works on all API versions)
+async function executeIndividualVariantUpdates(variantUpdates, discountPercent) {
+  console.log(`🔄 Fallback: Using individual variant updates for ${variantUpdates.length} variants`);
+  
+  const BATCH_SIZE = 10;
+  const DELAY_MS = 100;
+  let successCount = 0;
+  
+  // Process in small batches to avoid overwhelming the API
+  for (let i = 0; i < variantUpdates.length; i += BATCH_SIZE) {
+    const batch = variantUpdates.slice(i, i + BATCH_SIZE);
+    console.log(`📦 Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(variantUpdates.length/BATCH_SIZE)} (${batch.length} variants)`);
+    
+    const batchPromises = batch.map(async (variant) => {
+      try {
+        const mutation = `
+          mutation productVariantUpdate($input: ProductVariantInput!) {
+            productVariantUpdate(input: $input) {
+              productVariant {
+                id
+                price
+                compareAtPrice
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        const variables = {
+          input: {
+            id: variant.id,
+            price: variant.price,
+            compareAtPrice: variant.compareAtPrice
+          }
+        };
+
+        const response = await shopifyGraphQLRequest(mutation, variables);
+        
+        if (response.data?.productVariantUpdate?.userErrors?.length > 0) {
+          console.error(`❌ Error updating variant ${variant.id}:`, response.data.productVariantUpdate.userErrors);
+          return { success: false, id: variant.id };
+        }
+
+        return { success: true, id: variant.id, variant: response.data.productVariantUpdate.productVariant };
+      } catch (error) {
+        console.error(`❌ Failed to update variant ${variant.id}:`, error.message);
+        return { success: false, id: variant.id };
+      }
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    const batchSuccessCount = batchResults.filter(r => r.success).length;
+    successCount += batchSuccessCount;
+    
+    console.log(`✅ Batch completed: ${batchSuccessCount}/${batch.length} variants updated`);
+    
+    // Add delay between batches to respect rate limits
+    if (i + BATCH_SIZE < variantUpdates.length) {
+      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+    }
+  }
+  
+  console.log(`🎉 Individual updates completed: ${successCount}/${variantUpdates.length} variants updated`);
+  
+  return {
+    success: true,
+    updatedCount: successCount,
+    method: 'individual',
+    variants: []
+  };
 }
 
 // LEGACY: Keep the old optimized method as fallback
@@ -1488,12 +1631,37 @@ async function resetAllProductPricesModernBulk() {
   console.log(`🔄 MODERN BULK RESET: Using 2025 productVariantsBulkUpdate API`);
   const startTime = Date.now();
 
-  // Filter out products without variants
-  const validProducts = globalAuctionState.products.filter(p => p && p.variants && p.variants.length > 0);
-  console.log(`Found ${validProducts.length} valid products with variants`);
+  // Filter out products without variants and ensure they're eligible for resets
+  const validProducts = globalAuctionState.products.filter(p => {
+    if (!p || !p.variants || p.variants.length === 0) return false;
+    
+    // Skip draft products 
+    if (p.status && p.status.toLowerCase() === 'draft') {
+      console.log(`⏭️  Skipping DRAFT product in reset: ${p.title}`);
+      return false;
+    }
+    
+    // Check if product has any eligible variants (available for sale with stock)
+    const eligibleVariants = p.variants.filter(v => {
+      const isAvailable = v.available_for_sale !== false; // Default to true if not specified
+      const hasStock = !v.inventory_quantity || v.inventory_quantity > 0; // Default to true if not specified
+      const hasPrice = v.price && parseFloat(v.price) > 0;
+      
+      return isAvailable && hasStock && hasPrice;
+    });
+    
+    if (eligibleVariants.length === 0) {
+      console.log(`⏭️  Skipping product in reset: ${p.title} (no variants available for sale with stock)`);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  console.log(`Found ${validProducts.length} eligible products for reset (active, in-stock)`);
 
   if (validProducts.length === 0) {
-    console.log('❌ No valid products to reset.');
+    console.log('❌ No eligible products to reset (all are draft or out of stock).');
     return;
   }
 
@@ -1508,6 +1676,16 @@ async function resetAllProductPricesModernBulk() {
         product.variants;
 
       for (const variant of variants) {
+        // Additional variant-level filtering for safety in reset
+        const isAvailable = variant.available_for_sale !== false;
+        const hasStock = !variant.inventory_quantity || variant.inventory_quantity > 0;
+        const hasPrice = variant.price && parseFloat(variant.price) > 0;
+        
+        if (!isAvailable || !hasStock || !hasPrice) {
+          console.log(`  ⏭️ Skipping variant reset ${variant.admin_graphql_api_id || variant.id}: available=${isAvailable}, stock=${variant.inventory_quantity}, price=${variant.price}`);
+          continue;
+        }
+        
         const variantId = variant.admin_graphql_api_id || variant.id;
         const originalPrice = variant.compare_at_price || variant.compareAtPrice || variant.price;
 
