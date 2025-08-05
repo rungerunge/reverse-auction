@@ -301,17 +301,23 @@ async function fetchAllProducts() {
       const products = response.data.products.edges.map(edge => {
         const product = edge.node;
         
+        console.log(`📦 Converting product: ${product.title} with ${product.variants.edges.length} variants`);
+        
         // Convert GraphQL format to match the REST API format that the existing code expects
         return {
           id: product.id.split('/').pop(),
           title: product.title,
           tags: product.tags,
-          variants: product.variants.edges.map(variantEdge => ({
-            id: variantEdge.node.id.split('/').pop(),
-            admin_graphql_api_id: variantEdge.node.id,
-            price: variantEdge.node.price,
-            compare_at_price: variantEdge.node.compareAtPrice
-          }))
+          variants: product.variants.edges.map(variantEdge => {
+            const convertedVariant = {
+              id: variantEdge.node.id.split('/').pop(),
+              admin_graphql_api_id: variantEdge.node.id,
+              price: variantEdge.node.price,
+              compare_at_price: variantEdge.node.compareAtPrice
+            };
+            console.log(`  🔧 Converted variant: ${convertedVariant.admin_graphql_api_id} price=${convertedVariant.price} compare_at=${convertedVariant.compare_at_price}`);
+            return convertedVariant;
+          })
         };
       });
       
@@ -891,8 +897,29 @@ async function updateAllProductPrices(discountPercent) {
           tags: filteredTags.join(', ')
         });
 
-        // Prepare variant price updates
-          const variants = (product.variants || []).map(variant => {
+                // Prepare variant price updates - handle GraphQL edge format
+        let variants = [];
+        
+        // Handle GraphQL edges format from fetchAllProducts
+        if (product.variants && product.variants.edges) {
+          variants = product.variants.edges.map(edge => {
+            const variant = edge.node;
+            const variantId = variant.id;
+            const originalPrice = variant.compareAtPrice || variant.price;
+            const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
+
+            console.log(`🔧 Preparing variant ${variantId}: ${originalPrice} -> ${discountedPrice} (${discountPercent}% off)`);
+
+            return {
+              id: variantId,
+              price: discountedPrice,
+              compareAtPrice: originalPrice
+            };
+          });
+        } 
+        // Handle direct variants array (legacy format)
+        else if (product.variants && Array.isArray(product.variants)) {
+          variants = product.variants.map(variant => {
             let variantId;
             let originalPrice;
             let compareAtPrice;
@@ -914,12 +941,17 @@ async function updateAllProductPrices(discountPercent) {
 
             const discountedPrice = (parseFloat(originalPrice) * (100 - discountPercent) / 100).toFixed(2);
 
+            console.log(`🔧 Preparing variant ${variantId}: ${originalPrice} -> ${discountedPrice} (${discountPercent}% off)`);
+
             return {
               id: variantId,
               price: discountedPrice,
               compareAtPrice: compareAtPrice
             };
-        }).filter(v => v.id);
+          }).filter(v => v.id);
+        }
+        
+        variants = variants.filter(v => v.id);
 
         allVariantUpdates.push(...variants);
         processedCount++;
@@ -1304,29 +1336,54 @@ async function resetAllProductPrices() {
         tags: filteredTags.join(', ')
       });
       
-      // Prepare variant price resets
-          const variants = (product.variants || []).map(variant => {
-            let variantId;
-            let compareAtPrice;
-            
-            if (variant.admin_graphql_api_id) {
-              variantId = variant.admin_graphql_api_id;
-              compareAtPrice = variant.compare_at_price || variant.price;
-            } else if (variant.node) {
-              variantId = variant.node.id;
-              compareAtPrice = variant.node.compareAtPrice || variant.node.price;
-            } else {
-              const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
-              variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
-              compareAtPrice = variant.compare_at_price || variant.price;
-            }
-            
-            return {
-              id: variantId,
-              price: compareAtPrice,
-              compareAtPrice: compareAtPrice
-            };
-          }).filter(v => v.id);
+            // Prepare variant price resets - handle GraphQL edge format
+      let variants = [];
+      
+      // Handle GraphQL edges format from fetchAllProducts
+      if (product.variants && product.variants.edges) {
+        variants = product.variants.edges.map(edge => {
+          const variant = edge.node;
+          const variantId = variant.id;
+          const originalPrice = variant.compareAtPrice || variant.price;
+
+          console.log(`🔄 Preparing reset for variant ${variantId}: -> ${originalPrice}`);
+
+          return {
+            id: variantId,
+            price: originalPrice,
+            compareAtPrice: originalPrice
+          };
+        });
+      } 
+      // Handle direct variants array (legacy format)
+      else if (product.variants && Array.isArray(product.variants)) {
+        variants = product.variants.map(variant => {
+          let variantId;
+          let compareAtPrice;
+          
+          if (variant.admin_graphql_api_id) {
+            variantId = variant.admin_graphql_api_id;
+            compareAtPrice = variant.compare_at_price || variant.price;
+          } else if (variant.node) {
+            variantId = variant.node.id;
+            compareAtPrice = variant.node.compareAtPrice || variant.node.price;
+          } else {
+            const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
+            variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
+            compareAtPrice = variant.compare_at_price || variant.price;
+          }
+
+          console.log(`🔄 Preparing reset for variant ${variantId}: -> ${compareAtPrice}`);
+          
+          return {
+            id: variantId,
+            price: compareAtPrice,
+            compareAtPrice: compareAtPrice
+          };
+        }).filter(v => v.id);
+      }
+      
+      variants = variants.filter(v => v.id);
           
       allVariantUpdates.push(...variants);
       processedCount++;
