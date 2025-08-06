@@ -2631,115 +2631,158 @@ app.get('/', async (req, res) => {
 
 app.post('/set-compare-prices', async (req, res) => {
   try {
-    console.log('Setting compare-at prices for all products...');
+    console.log('🏷️ Setting compare-at prices for all products...');
     
     // Fetch all products if they're not already loaded
     let products;
-    if (globalAuctionState.products.length > 0) {
+    if (globalAuctionState.products && globalAuctionState.products.length > 0) {
       products = globalAuctionState.products;
+      console.log(`📦 Using cached products: ${products.length}`);
     } else {
+      console.log('📦 Fetching fresh product data...');
       products = await fetchAllProducts();
     }
     
-    // Filter out products without variants
-    const validProducts = products.filter(p => p && p.variants && p.variants.length > 0);
-    console.log(`Found ${validProducts.length} valid products with variants`);
-    
-    if (validProducts.length === 0) {
-      console.log('No valid products to update compare-at prices for.');
-      return res.redirect('/?message=No valid products found');
+    if (!products || products.length === 0) {
+      console.log('❌ No products found.');
+      return res.redirect('/?error=No products found');
     }
     
-    const BATCH_SIZE = 5;
-    const BATCH_DELAY_MS = 500;
-    
-    const batches = [];
-    for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
-      batches.push(validProducts.slice(i, i + BATCH_SIZE));
-    }
-    
-    // Process each batch
-    for (const [index, batch] of batches.entries()) {
-      console.log(`Processing batch ${index + 1}/${batches.length}`);
+    // Filter for products that have variants to update
+    const validProducts = [];
+    for (const product of products) {
+      if (!product.variants || !product.variants.edges) continue;
       
-      // Process multiple products in parallel
-      const updatePromises = batch.map(async (product) => {
-        // Check if any variant needs update
-        const needsUpdate = product.variants.some(variant =>
-          !variant.compare_at_price || variant.compare_at_price === '0.00'
-        );
-        
-        if (!needsUpdate) {
-          return { skipped: true };
-        }
-        
-        try {
-          const productId = `gid://shopify/Product/${product.id.toString().replace(/\.0$/, '')}`;
-          
-          // Update each variant in parallel
-          const variantMutation = `
-            mutation updateProductVariant($input: ProductVariantInput!) {
-              productVariantUpdate(input: $input) {
-                productVariant {
-                  id
-                  price
-                  compareAtPrice
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `;
-          
-          const variantPromises = product.variants.map(async variant => {
-            if (!variant.compare_at_price || variant.compare_at_price === '0.00') {
-              const variantId = variant.admin_graphql_api_id || 
-                `gid://shopify/ProductVariant/${variant.id.toString().replace(/\.0$/, '')}`;
-              
-              const variantVariables = {
-                input: {
-                  id: variantId,
-                  compareAtPrice: variant.price
-                }
-              };
-              
-              const variantResult = await shopifyGraphQLRequest(variantMutation, variantVariables);
-              
-              if (variantResult.data?.productVariantUpdate?.userErrors?.length > 0) {
-                throw new Error(`Variant update failed: ${JSON.stringify(variantResult.data.productVariantUpdate.userErrors)}`);
-              }
-              
-              return variantResult;
-            }
-            return null;
-          }).filter(p => p !== null);
-          
-          await Promise.all(variantPromises);
-          
-          console.log(`Successfully updated compare-at price for product ${productId}`);
-          return { success: true };
-        } catch (error) {
-          console.error(`Error updating compare-at price for product ${product.id}:`, error);
-          return { success: false, error };
-        }
+      const hasVariantsNeedingUpdate = product.variants.edges.some(variantEdge => {
+        const variant = variantEdge.node;
+        return !variant.compareAtPrice || variant.compareAtPrice === "0.00" || parseFloat(variant.compareAtPrice) === 0;
       });
       
-      // Wait for all updates in this batch to complete
-      await Promise.all(updatePromises);
+      if (hasVariantsNeedingUpdate) {
+        validProducts.push(product);
+      }
+    }
+    
+    console.log(`✅ Found ${validProducts.length} products with variants needing compare-at price updates`);
+    
+    if (validProducts.length === 0) {
+      console.log('✨ All products already have compare-at prices set.');
+      return res.redirect('/?message=All products already have compare-at prices set');
+    }
+    
+    // Use same batching strategy as other functions
+    const BATCH_SIZE = 8;
+    const VARIANT_BATCH_SIZE = 20;
+    const BATCH_DELAY_MS = 1500;
+    const MAX_CONCURRENT_REQUESTS = 2;
+    
+    let totalVariantsUpdated = 0;
+    const startTime = Date.now();
+    
+    // Process products in batches
+    for (let i = 0; i < validProducts.length; i += BATCH_SIZE) {
+      const batch = validProducts.slice(i, i + BATCH_SIZE);
+      console.log(`🔄 Processing product batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(validProducts.length/BATCH_SIZE)} (${batch.length} products)`);
       
-      // Add delay between batches
-      if (index < batches.length - 1) {
-        console.log(`Waiting ${BATCH_DELAY_MS}ms before next batch...`);
+      // Process each product in the batch
+      for (const product of batch) {
+        try {
+          const variantsToUpdate = [];
+          
+          // Collect variants that need compare-at price updates
+          for (const variantEdge of product.variants.edges) {
+            const variant = variantEdge.node;
+            
+            // Skip if compare-at price is already set
+            if (variant.compareAtPrice && variant.compareAtPrice !== "0.00" && parseFloat(variant.compareAtPrice) > 0) {
+              continue;
+            }
+            
+            // Skip if price is 0 or invalid
+            if (!variant.price || parseFloat(variant.price) <= 0) {
+              continue;
+            }
+            
+            variantsToUpdate.push({
+              id: variant.id,
+              currentPrice: variant.price,
+              newCompareAtPrice: variant.price
+            });
+          }
+          
+          if (variantsToUpdate.length === 0) {
+            continue;
+          }
+          
+          console.log(`🏷️ Updating ${variantsToUpdate.length} variants for product ${product.id}`);
+          
+          // Process variants in smaller batches using bulk API
+          for (let j = 0; j < variantsToUpdate.length; j += VARIANT_BATCH_SIZE) {
+            const variantBatch = variantsToUpdate.slice(j, j + VARIANT_BATCH_SIZE);
+            
+            const bulkVariantMutation = `
+              mutation {
+                ${variantBatch.map((variant, index) => 
+                  `variant${index}: productVariantUpdate(input: {
+                    id: "${variant.id}"
+                    compareAtPrice: "${variant.newCompareAtPrice}"
+                  }) {
+                    productVariant {
+                      id
+                      price
+                      compareAtPrice
+                    }
+                    userErrors {
+                      field
+                      message
+                    }
+                  }`
+                ).join('\n')}
+              }
+            `;
+            
+            const result = await shopifyGraphQLRequest(bulkVariantMutation);
+            
+            if (result.errors) {
+              console.error('❌ GraphQL errors:', result.errors);
+              throw new Error(`GraphQL errors: ${JSON.stringify(result.errors)}`);
+            }
+            
+            // Check for user errors in each variant update
+            for (let k = 0; k < variantBatch.length; k++) {
+              const variantResult = result.data[`variant${k}`];
+              if (variantResult?.userErrors?.length > 0) {
+                console.error(`❌ Variant ${variantBatch[k].id} update failed:`, variantResult.userErrors);
+              } else {
+                totalVariantsUpdated++;
+                console.log(`✅ Set compare-at price for variant ${variantBatch[k].id}: ${variantBatch[k].newCompareAtPrice}`);
+              }
+            }
+            
+            // Small delay between variant batches
+            if (j + VARIANT_BATCH_SIZE < variantsToUpdate.length) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error updating compare-at prices for product ${product.id}:`, error);
+        }
+      }
+      
+      // Delay between product batches
+      if (i + BATCH_SIZE < validProducts.length) {
+        console.log(`⏳ Waiting ${BATCH_DELAY_MS}ms before next batch...`);
         await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }
     
-    console.log('Finished setting compare-at prices for all products');
-    res.redirect('/?message=Compare-at prices set successfully');
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`🎉 Successfully set compare-at prices for ${totalVariantsUpdated} variants in ${duration}s`);
+    
+    res.redirect(`/?message=Compare-at prices set successfully for ${totalVariantsUpdated} variants`);
   } catch (error) {
-    console.error('Error setting compare prices:', error);
+    console.error('❌ Error setting compare prices:', error);
     res.redirect('/?error=Error setting compare-at prices');
   }
 });
