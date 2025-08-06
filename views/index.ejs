@@ -276,6 +276,63 @@
         .rounded { border-radius: var(--border-radius-md); }
         .border { border: 1px solid var(--gray-300); }
         
+        /* Schedule Styling */
+        .schedule-container {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border: 1px solid var(--gray-300);
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+        }
+        
+        .schedule-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: white;
+            border-radius: var(--border-radius-md);
+            border: 1px solid rgba(0,0,0,0.1);
+            margin-bottom: 0.5rem;
+            transition: all 0.2s ease;
+        }
+        
+        .schedule-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .schedule-item.current {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            border-color: var(--danger-color);
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+        
+        .schedule-item.upcoming {
+            background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        .schedule-time {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        .schedule-discount {
+            font-weight: 700;
+            font-size: 1.2rem;
+            padding: 0.25rem 0.75rem;
+            background: rgba(255,255,255,0.2);
+            border-radius: 20px;
+        }
+        
+        .schedule-countdown {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            font-weight: 500;
+        }
+        
         .alert {
             padding: var(--spacing-md);
             border-radius: var(--border-radius-md);
@@ -581,6 +638,17 @@
                         <div class="auction-meta-item flex align-items-center gap-1">
                             <span class="material-icons-round" style="font-size: 16px;">update</span>
                             Next Update: <%= new Date(globalAuction.next_update).toLocaleString() %>
+                        </div>
+                    </div>
+                    
+                    <!-- NEW: Price Drop Schedule -->
+                    <div class="mt-4">
+                        <h4 class="font-weight-semibold mb-3 flex align-items-center gap-2">
+                            <span class="material-icons-round" style="font-size: 20px;">schedule</span>
+                            Kommende Pris Drops (Eksakte Tidspunkter)
+                        </h4>
+                        <div id="price-schedule" class="schedule-container">
+                            <div class="text-muted">Henter tidsplan...</div>
                         </div>
                     </div>
                 </div>
@@ -1013,5 +1081,84 @@
             background: var(--gray-500);
         }
     </style>
+    
+    <script>
+        // Function to fetch and display price drop schedule
+        async function loadPriceSchedule() {
+            try {
+                const response = await fetch('/api/auction-status');
+                const data = await response.json();
+                
+                const scheduleContainer = document.getElementById('price-schedule');
+                if (!scheduleContainer) return;
+                
+                if (!data.isRunning && !data.isScheduled) {
+                    scheduleContainer.innerHTML = '<div class="text-muted">Ingen aktiv auktion</div>';
+                    return;
+                }
+                
+                if (!data.schedule || data.schedule.length === 0) {
+                    scheduleContainer.innerHTML = '<div class="text-muted">Ingen tidsplan tilgængelig</div>';
+                    return;
+                }
+                
+                const now = new Date();
+                let html = '';
+                
+                // Show only next 5 drops for clarity
+                data.schedule.slice(0, 5).forEach((item, index) => {
+                    const dropTime = new Date(item.scheduledTime);
+                    const isPast = dropTime < now;
+                    const isCurrent = !isPast && index === 0; // First upcoming is current
+                    const isUpcoming = !isPast && !isCurrent;
+                    
+                    let cssClass = 'schedule-item';
+                    if (isCurrent) cssClass += ' current';
+                    else if (isUpcoming) cssClass += ' upcoming';
+                    
+                    const timeUntil = Math.max(0, dropTime - now);
+                    const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
+                    const minutesUntil = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
+                    const secondsUntil = Math.floor((timeUntil % (1000 * 60)) / 1000);
+                    
+                    let countdownText = '';
+                    if (!isPast) {
+                        if (hoursUntil > 0) {
+                            countdownText = `om ${hoursUntil}t ${minutesUntil}m`;
+                        } else if (minutesUntil > 0) {
+                            countdownText = `om ${minutesUntil}m ${secondsUntil}s`;
+                        } else {
+                            countdownText = `om ${secondsUntil}s`;
+                        }
+                    }
+                    
+                    html += `
+                        <div class="${cssClass}">
+                            <div class="flex align-items-center gap-3">
+                                <div class="schedule-time">${item.formattedTime}</div>
+                                ${countdownText ? `<div class="schedule-countdown">(${countdownText})</div>` : ''}
+                            </div>
+                            <div class="schedule-discount">-${item.discountPercent}%</div>
+                        </div>
+                    `;
+                });
+                
+                scheduleContainer.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading price schedule:', error);
+                const scheduleContainer = document.getElementById('price-schedule');
+                if (scheduleContainer) {
+                    scheduleContainer.innerHTML = '<div class="text-muted">Fejl ved indlæsning af tidsplan</div>';
+                }
+            }
+        }
+        
+        // Load schedule on page load
+        document.addEventListener('DOMContentLoaded', loadPriceSchedule);
+        
+        // Update schedule every 30 seconds
+        setInterval(loadPriceSchedule, 30000);
+    </script>
 </body>
 </html> 

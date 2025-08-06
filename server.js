@@ -2413,36 +2413,57 @@ schedule.scheduleJob('* * * * *', async () => {
     console.log('- startingDiscountPercent:', globalAuctionState.startingDiscountPercent);
     console.log('- currentDiscountPercent:', globalAuctionState.currentDiscountPercent);
     
-    // Now check if running auction needs a price update
+    // Now check if running auction needs a price update - FIXED TIMING
     if (globalAuctionState.isRunning) {
       console.log('SCHEDULER: Checking if auction price update is due...');
       
-      const lastUpdate = globalAuctionState.lastUpdateTime;
+      const startTime = globalAuctionState.startedAt || globalAuctionState.scheduledStartTime;
       const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
       
-      if (lastUpdate && now - lastUpdate >= intervalMs) {
-        console.log('!!! AUCTION PRICE UPDATE DUE !!!');
+      if (!startTime) {
+        console.log('SCHEDULER: No start time found, cannot determine update schedule');
+        return;
+      }
+      
+      // Calculate how many intervals should have passed since start
+      const elapsedMs = now - startTime;
+      const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+      const nextIntervalNumber = intervalsPassed + 1;
+      
+      // Calculate the exact time for the next update (based on start time + intervals)
+      const nextScheduledUpdate = new Date(startTime.getTime() + (nextIntervalNumber * intervalMs));
+      const currentScheduledUpdate = new Date(startTime.getTime() + (intervalsPassed * intervalMs));
+      
+      console.log(`SCHEDULER: Start time: ${startTime.toISOString()}`);
+      console.log(`SCHEDULER: Elapsed time: ${Math.floor(elapsedMs / 60000)}m ${Math.floor((elapsedMs % 60000) / 1000)}s`);
+      console.log(`SCHEDULER: Intervals passed: ${intervalsPassed}`);
+      console.log(`SCHEDULER: Current scheduled update was at: ${currentScheduledUpdate.toISOString()}`);
+      console.log(`SCHEDULER: Next scheduled update is at: ${nextScheduledUpdate.toISOString()}`);
+      
+      // Check if we've passed a scheduled update time and haven't processed it yet
+      const expectedDiscountPercent = (intervalsPassed + 1) * globalAuctionState.startingDiscountPercent;
+      
+      if (now >= currentScheduledUpdate && globalAuctionState.currentDiscountPercent < expectedDiscountPercent) {
+        console.log('!!! SCHEDULED PRICE UPDATE DUE !!!');
+        console.log(`SCHEDULER: Expected discount: ${expectedDiscountPercent}%, Current: ${globalAuctionState.currentDiscountPercent}%`);
         
-        // Increment the discount percentage
-        globalAuctionState.currentDiscountPercent += globalAuctionState.startingDiscountPercent;
+        // Set the discount to the expected level (in case we missed intervals)
+        globalAuctionState.currentDiscountPercent = expectedDiscountPercent;
         globalAuctionState.lastUpdateTime = now;
         
-        console.log(`SCHEDULER: Increasing discount to ${globalAuctionState.currentDiscountPercent}%`);
+        console.log(`SCHEDULER: Setting discount to ${globalAuctionState.currentDiscountPercent}% (interval ${intervalsPassed + 1})`);
         
         // Apply the new discount
         await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
         
-        // Update the next update time in the database
-        const nextUpdate = new Date();
-        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
-        
+        // Update the database with the next scheduled time (not now + interval)
         await new Promise((resolve, reject) => {
           db.run(
             'UPDATE auctions SET reduction_percent = ?, current_price = ?, next_update = ? WHERE product_id = ?',
             [
               globalAuctionState.currentDiscountPercent, 
               globalAuctionState.currentDiscountPercent,
-              nextUpdate.toISOString().replace('T', ' ').split('.')[0], 
+              nextScheduledUpdate.toISOString().replace('T', ' ').split('.')[0], 
               'global'
             ],
             (err) => {
@@ -2456,13 +2477,14 @@ schedule.scheduleJob('* * * * *', async () => {
           );
         });
         
-        console.log(`SCHEDULER: Next update scheduled for ${nextUpdate.toISOString()}`);
+        console.log(`SCHEDULER: Next update scheduled for EXACT time: ${nextScheduledUpdate.toISOString()}`);
       } else {
-        const timeToNextUpdate = lastUpdate ? intervalMs - (now - lastUpdate) : 0;
+        const timeToNextUpdate = nextScheduledUpdate - now;
         const minutesRemaining = Math.floor(timeToNextUpdate / 60000);
         const secondsRemaining = Math.floor((timeToNextUpdate % 60000) / 1000);
         
-        console.log(`SCHEDULER: Next price update in ${minutesRemaining}m ${secondsRemaining}s`);
+        console.log(`SCHEDULER: Next price update at EXACT time: ${nextScheduledUpdate.toISOString()}`);
+        console.log(`SCHEDULER: Time remaining: ${minutesRemaining}m ${secondsRemaining}s`);
       }
     } else {
       console.log('SCHEDULER: No active auction running, skipping price update check');
@@ -2744,6 +2766,28 @@ app.get('/api/auction-status', (req, res) => {
         console.log(`Time until start: ${timeUntilNextUpdate}ms`);
       }
       
+      // Calculate future price drop schedule for fallback
+      const schedule = [];
+      if (globalAuctionState.isRunning || globalAuctionState.scheduledStartTime) {
+        const startTime = globalAuctionState.startedAt || globalAuctionState.scheduledStartTime;
+        const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
+        const discountIncrement = globalAuctionState.startingDiscountPercent;
+        
+        // Generate next 10 scheduled drops
+        for (let i = 1; i <= 10; i++) {
+          const dropTime = new Date(startTime.getTime() + (i * intervalMs));
+          const discountPercent = i * discountIncrement;
+          
+          schedule.push({
+            intervalNumber: i,
+            scheduledTime: dropTime.toISOString(),
+            discountPercent: discountPercent,
+            formattedTime: moment(dropTime).tz(globalAuctionState.timezone || 'CET').format('HH:mm:ss'),
+            formattedDateTime: moment(dropTime).tz(globalAuctionState.timezone || 'CET').format('YYYY-MM-DD HH:mm:ss')
+          });
+        }
+      }
+      
       return res.json({
         isRunning: globalAuctionState.isRunning,
         isScheduled: !globalAuctionState.isRunning && !!globalAuctionState.scheduledStartTime,
@@ -2753,7 +2797,8 @@ app.get('/api/auction-status', (req, res) => {
         intervalMinutes: globalAuctionState.intervalMinutes,
         startingDiscountPercent: globalAuctionState.startingDiscountPercent,
         scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
-        timezone: globalAuctionState.timezone || 'CET'
+        timezone: globalAuctionState.timezone || 'CET',
+        schedule: schedule  // NEW: Future price drop schedule
       });
     }
     
@@ -2793,6 +2838,30 @@ app.get('/api/auction-status', (req, res) => {
         .format('YYYY-MM-DD HH:mm:ss');
     }
     
+    // Calculate future price drop schedule
+    const schedule = [];
+    if (auction.is_active || isScheduled) {
+      const startTime = auction.is_active 
+        ? (globalAuctionState.startedAt || new Date(auction.scheduled_start))
+        : new Date(auction.scheduled_start);
+      const intervalMs = parseInt(auction.interval_minutes) * 60 * 1000;
+      const discountIncrement = globalAuctionState.startingDiscountPercent || 5;
+      
+      // Generate next 10 scheduled drops
+      for (let i = 1; i <= 10; i++) {
+        const dropTime = new Date(startTime.getTime() + (i * intervalMs));
+        const discountPercent = i * discountIncrement;
+        
+        schedule.push({
+          intervalNumber: i,
+          scheduledTime: dropTime.toISOString(),
+          discountPercent: discountPercent,
+          formattedTime: moment(dropTime).tz(auction.timezone || 'CET').format('HH:mm:ss'),
+          formattedDateTime: moment(dropTime).tz(auction.timezone || 'CET').format('YYYY-MM-DD HH:mm:ss')
+        });
+      }
+    }
+    
     res.json({
       isRunning: !!auction.is_active,
       isScheduled: isScheduled,
@@ -2800,10 +2869,11 @@ app.get('/api/auction-status', (req, res) => {
       nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
       timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
       intervalMinutes: parseInt(auction.interval_minutes),
-      startingDiscountPercent: parseInt(auction.reduction_percent),
+      startingDiscountPercent: globalAuctionState.startingDiscountPercent || parseInt(auction.reduction_percent),
       scheduledStartTime: auction.scheduled_start ? new Date(auction.scheduled_start).toISOString() : null,
       formattedScheduledTime: formattedScheduledTime,
-      timezone: auction.timezone || 'CET'
+      timezone: auction.timezone || 'CET',
+      schedule: schedule  // NEW: Future price drop schedule
     });
   });
 });
