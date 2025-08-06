@@ -2908,7 +2908,8 @@ app.get('/api/auction-status', (req, res) => {
             // For scheduled auctions, start from interval 1 (first drop after start)
             intervalNumber = i;
             dropTime = new Date(startTime.getTime() + (i * intervalMs));
-            discountPercent = i * discountIncrement;
+            // FIXED: Add increment to current discount (e.g., 10% + 5% = 15% for first drop)
+            discountPercent = currentDiscountPercent + (i * discountIncrement);
           }
           
           schedule.push({
@@ -2980,7 +2981,8 @@ app.get('/api/auction-status', (req, res) => {
         : new Date(auction.scheduled_start);
       const intervalMs = parseInt(auction.interval_minutes) * 60 * 1000;
       const discountIncrement = globalAuctionState.startingDiscountPercent || 5;
-      const currentDiscountPercent = auction.is_active ? parseInt(auction.reduction_percent) : 0;
+      // FIXED: Use actual current discount from globalAuctionState, not just reduction_percent
+      const currentDiscountPercent = globalAuctionState.currentDiscountPercent || (auction.is_active ? parseInt(auction.reduction_percent) : 0);
       const now = new Date();
       
       // Calculate how many intervals should have passed since start
@@ -3000,7 +3002,8 @@ app.get('/api/auction-status', (req, res) => {
           // For scheduled auctions, start from interval 1 (first drop after start)
           intervalNumber = i;
           dropTime = new Date(startTime.getTime() + (i * intervalMs));
-          discountPercent = i * discountIncrement;
+          // FIXED: Add increment to current discount (e.g., 10% + 5% = 15% for first drop)
+          discountPercent = currentDiscountPercent + (i * discountIncrement);
         }
         
         schedule.push({
