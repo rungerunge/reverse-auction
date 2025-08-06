@@ -555,7 +555,7 @@ app.post('/auctions/all', async (req, res) => {
   console.log(`Time: ${new Date().toISOString()}`);
   console.log(`Form data details: ${JSON.stringify(req.body, null, 2)}`);
   
-  const { interval, reductionPercent, startOption, scheduledTime, timezone } = req.body;
+  const { interval, reductionPercent, initialDiscount, startOption, scheduledTime, timezone } = req.body;
   
   // Validate input parameters
   if (!interval || isNaN(parseInt(interval)) || parseInt(interval) <= 0) {
@@ -695,24 +695,33 @@ app.post('/auctions/all', async (req, res) => {
     console.log('UPDATING GLOBAL AUCTION STATE');
     console.log('=======================================================');
     
-    // Calculate initial discount - use existing discount if there is one, otherwise start fresh
-    const existingDiscountPercent = globalAuctionState.currentDiscountPercent || 0;
+    // NEW FLOW: Apply initial discount immediately if provided, regardless of scheduling
     const startingDiscountIncrement = parseInt(reductionPercent) || 5;
+    const requestedInitialDiscount = parseInt(initialDiscount) || 0;
     
+    // If user specified an initial discount, apply it immediately
     let initialDiscountPercent;
-    if (isRunningNow) {
-      // If starting immediately and there's already a discount applied, continue from there
-      if (existingDiscountPercent > 0) {
-        initialDiscountPercent = existingDiscountPercent + startingDiscountIncrement;
-        console.log(`🎯 Continuing from existing ${existingDiscountPercent}% discount, adding ${startingDiscountIncrement}% = ${initialDiscountPercent}%`);
-      } else {
-        initialDiscountPercent = startingDiscountIncrement;
-        console.log(`🆕 Starting fresh with ${initialDiscountPercent}% discount`);
+    if (requestedInitialDiscount > 0) {
+      initialDiscountPercent = requestedInitialDiscount;
+      console.log(`🎯 Applying initial discount: ${initialDiscountPercent}% (from form)`);
+      
+      // Apply the initial discount to products immediately
+      if (validProducts && validProducts.length > 0) {
+        console.log(`🎯 Applying ${initialDiscountPercent}% initial discount to ${validProducts.length} products...`);
+        await updateAllProductPrices(initialDiscountPercent);
+        console.log(`✅ Initial ${initialDiscountPercent}% discount applied successfully`);
       }
     } else {
-      // For scheduled auctions, keep the existing discount until auction starts
-      initialDiscountPercent = existingDiscountPercent;
-      console.log(`📅 Scheduled auction - maintaining current ${initialDiscountPercent}% discount until start`);
+      // No initial discount specified, keep any existing discount
+      const existingDiscountPercent = globalAuctionState.currentDiscountPercent || 0;
+      if (isRunningNow && existingDiscountPercent === 0) {
+        // Only apply starting increment if running now and no existing discount
+        initialDiscountPercent = startingDiscountIncrement;
+        console.log(`🆕 Starting fresh with ${initialDiscountPercent}% discount`);
+      } else {
+        initialDiscountPercent = existingDiscountPercent;
+        console.log(`📅 Maintaining current ${initialDiscountPercent}% discount`);
+      }
     }
 
     globalAuctionState = {
@@ -735,11 +744,13 @@ app.post('/auctions/all', async (req, res) => {
     console.log(`- Interval: ${globalAuctionState.intervalMinutes} minutes`);
     console.log(`- Timezone: ${selectedTimezone}`);
     
-    // Apply the initial discount if starting immediately
-    if (isRunningNow) {
+    // Apply the initial discount if starting immediately AND no initial discount was already applied
+    if (isRunningNow && requestedInitialDiscount === 0) {
       console.log('Applying initial price discount immediately...');
       await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
       console.log('Initial price discount applied successfully');
+    } else if (isRunningNow && requestedInitialDiscount > 0) {
+      console.log('Initial discount already applied from form, skipping additional discount');
     }
     
     // Set next update time in DB for tracking
@@ -2399,15 +2410,17 @@ schedule.scheduleJob('* * * * *', async () => {
               if (auction.product_id === 'global') {
                 console.log('SCHEDULER: This is a global auction, updating global state');
                 
-                // Calculate starting discount - continue from existing if there is one
+                // NEW LOGIC: Keep existing discount at auction start, don't add to it
                 const existingDiscountPercent = globalAuctionState.currentDiscountPercent || 0;
                 const startingDiscountIncrement = parseInt(auction.reduction_percent) || 5;
                 
                 let schedulerStartingDiscountPercent;
                 if (existingDiscountPercent > 0) {
-                  schedulerStartingDiscountPercent = existingDiscountPercent + startingDiscountIncrement;
-                  console.log(`🎯 SCHEDULER: Starting from existing ${existingDiscountPercent}% + ${startingDiscountIncrement}% = ${schedulerStartingDiscountPercent}%`);
+                  // Keep the existing discount as-is (e.g., manual 10% stays 10%)
+                  schedulerStartingDiscountPercent = existingDiscountPercent;
+                  console.log(`🎯 SCHEDULER: Keeping existing ${existingDiscountPercent}% discount at auction start`);
                 } else {
+                  // No existing discount, start with first increment
                   schedulerStartingDiscountPercent = startingDiscountIncrement;
                   console.log(`🆕 SCHEDULER: Starting fresh with ${schedulerStartingDiscountPercent}%`);
                 }
@@ -2797,17 +2810,19 @@ app.get('/api/auction-status', (req, res) => {
       // Time to start the auction
       console.log('Starting scheduled auction now');
       
-      // Calculate starting discount - continue from existing if there is one
+      // NEW LOGIC: Keep existing discount at auction start (don't add to it)
       const existingDiscountPercent = globalAuctionState.currentDiscountPercent || 0;
       const startingDiscountIncrement = globalAuctionState.startingDiscountPercent;
       
       let auctionStartingDiscountPercent;
       if (existingDiscountPercent > 0) {
-        auctionStartingDiscountPercent = existingDiscountPercent + startingDiscountIncrement;
-        console.log(`🎯 Scheduled auction starting from existing ${existingDiscountPercent}% + ${startingDiscountIncrement}% = ${auctionStartingDiscountPercent}%`);
+        // Keep existing discount (e.g., manual 10% stays 10%)
+        auctionStartingDiscountPercent = existingDiscountPercent;
+        console.log(`🎯 API: Keeping existing ${existingDiscountPercent}% discount at auction start`);
       } else {
+        // No existing discount, start with first increment
         auctionStartingDiscountPercent = startingDiscountIncrement;
-        console.log(`🆕 Scheduled auction starting fresh with ${auctionStartingDiscountPercent}%`);
+        console.log(`🆕 API: Starting fresh with ${auctionStartingDiscountPercent}%`);
       }
       
       globalAuctionState.isRunning = true;
