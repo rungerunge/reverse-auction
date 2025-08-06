@@ -723,7 +723,7 @@ app.post('/auctions/all', async (req, res) => {
         console.log(`📅 Maintaining current ${initialDiscountPercent}% discount`);
       }
     }
-
+    
     globalAuctionState = {
       isRunning: isRunningNow,
       startedAt: isRunningNow ? new Date() : null,
@@ -930,7 +930,7 @@ app.post('/set-manual-discount', async (req, res) => {
       try {
         const products = await fetchAllProducts();
         globalAuctionState.products = products;
-      } catch (error) {
+  } catch (error) {
         console.error('Error fetching products:', error);
         res.redirect('/?error=Error fetching products for discount: ' + error.message);
         return;
@@ -2424,7 +2424,7 @@ schedule.scheduleJob('* * * * *', async () => {
                   schedulerStartingDiscountPercent = startingDiscountIncrement;
                   console.log(`🆕 SCHEDULER: Starting fresh with ${schedulerStartingDiscountPercent}%`);
                 }
-
+                
                 // Update the global auction state
                 globalAuctionState.isRunning = true;
                 globalAuctionState.startedAt = now;
@@ -2921,14 +2921,15 @@ app.get('/api/auction-status', (req, res) => {
         }
       }
       
-      return res.json({
+      return       res.json({
         isRunning: globalAuctionState.isRunning,
         isScheduled: !globalAuctionState.isRunning && !!globalAuctionState.scheduledStartTime,
         currentDiscountPercent: globalAuctionState.currentDiscountPercent,
         nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
         timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
         intervalMinutes: globalAuctionState.intervalMinutes,
-        startingDiscountPercent: globalAuctionState.startingDiscountPercent,
+        // FIXED: Show current discount as "first discount" when initial discount is set
+        startingDiscountPercent: globalAuctionState.currentDiscountPercent,
         scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
         timezone: globalAuctionState.timezone || 'CET',
         schedule: schedule  // NEW: Future price drop schedule
@@ -3015,11 +3016,12 @@ app.get('/api/auction-status', (req, res) => {
     res.json({
       isRunning: !!auction.is_active,
       isScheduled: isScheduled,
-      currentDiscountPercent: parseInt(auction.reduction_percent),
+      currentDiscountPercent: globalAuctionState.currentDiscountPercent || parseInt(auction.reduction_percent),
       nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
       timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
       intervalMinutes: parseInt(auction.interval_minutes),
-      startingDiscountPercent: globalAuctionState.startingDiscountPercent || parseInt(auction.reduction_percent),
+      // FIXED: Show current discount as "first discount" when initial discount is set  
+      startingDiscountPercent: globalAuctionState.currentDiscountPercent || parseInt(auction.reduction_percent),
       scheduledStartTime: auction.scheduled_start ? new Date(auction.scheduled_start).toISOString() : null,
       formattedScheduledTime: formattedScheduledTime,
       timezone: auction.timezone || 'CET',
