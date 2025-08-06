@@ -832,8 +832,20 @@ app.post('/stop-all-auctions', async (req, res) => {
   try {
     console.log('Stopping all auctions immediately...');
     
-    // Reset the global auction state
-    globalAuctionState.isRunning = false;
+    // Properly clear the global auction state
+    globalAuctionState = {
+      isRunning: false,
+      startedAt: null,
+      scheduledStartTime: null,
+      timezone: 'CET',
+      intervalMinutes: 30,
+      startingDiscountPercent: 5,
+      currentDiscountPercent: globalAuctionState.currentDiscountPercent || 0, // Keep current discount
+      lastUpdateTime: null,
+      products: globalAuctionState.products || [] // Keep products in memory
+    };
+    
+    console.log(`🛑 Auction stopped - maintaining current discount: ${globalAuctionState.currentDiscountPercent}%`);
     
     // Deactivate auction in DB
     await new Promise((resolve, reject) => {
@@ -2870,21 +2882,22 @@ app.get('/api/auction-status', (req, res) => {
         
         // Generate next 10 scheduled drops starting from the NEXT interval
         for (let i = 1; i <= 10; i++) {
-          const futureIntervalNumber = intervalsPassed + i;
-          const dropTime = new Date(startTime.getTime() + (futureIntervalNumber * intervalMs));
+          let dropTime, discountPercent, intervalNumber;
           
-          // Calculate discount based on total intervals from start, not just current
-          let discountPercent;
           if (globalAuctionState.isRunning) {
-            // For active auctions, add increment to current discount
+            // For active auctions, calculate from next interval
+            intervalNumber = intervalsPassed + i;
+            dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
             discountPercent = currentDiscountPercent + (i * discountIncrement);
           } else {
-            // For scheduled auctions, calculate from start
-            discountPercent = futureIntervalNumber * discountIncrement;
+            // For scheduled auctions, start from interval 1 (first drop after start)
+            intervalNumber = i;
+            dropTime = new Date(startTime.getTime() + (i * intervalMs));
+            discountPercent = i * discountIncrement;
           }
           
           schedule.push({
-            intervalNumber: futureIntervalNumber,
+            intervalNumber: intervalNumber,
             scheduledTime: dropTime.toISOString(),
             discountPercent: discountPercent,
             formattedTime: moment(dropTime).tz(globalAuctionState.timezone || 'CET').format('HH:mm:ss'),
@@ -2960,21 +2973,22 @@ app.get('/api/auction-status', (req, res) => {
       
       // Generate next 10 scheduled drops starting from the NEXT interval
       for (let i = 1; i <= 10; i++) {
-        const futureIntervalNumber = intervalsPassed + i;
-        const dropTime = new Date(startTime.getTime() + (futureIntervalNumber * intervalMs));
+        let dropTime, discountPercent, intervalNumber;
         
-        // Calculate discount based on total intervals from start, not just current
-        let discountPercent;
         if (auction.is_active) {
-          // For active auctions, add increment to current discount
+          // For active auctions, calculate from next interval
+          intervalNumber = intervalsPassed + i;
+          dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
           discountPercent = currentDiscountPercent + (i * discountIncrement);
         } else {
-          // For scheduled auctions, calculate from start
-          discountPercent = futureIntervalNumber * discountIncrement;
+          // For scheduled auctions, start from interval 1 (first drop after start)
+          intervalNumber = i;
+          dropTime = new Date(startTime.getTime() + (i * intervalMs));
+          discountPercent = i * discountIncrement;
         }
         
         schedule.push({
-          intervalNumber: futureIntervalNumber,
+          intervalNumber: intervalNumber,
           scheduledTime: dropTime.toISOString(),
           discountPercent: discountPercent,
           formattedTime: moment(dropTime).tz(auction.timezone || 'CET').format('HH:mm:ss'),
