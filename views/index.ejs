@@ -588,11 +588,18 @@
                     <p>Auction is running for <%= auctions.length %> products.</p>
                 <% } %>
                 
-                <div class="mt-3">
+                <div class="mt-3 flex flex-wrap gap-2">
                     <form action="/stop-all-auctions" method="POST">
                         <button type="submit" class="btn btn-danger">
                             <span class="material-icons-round" style="font-size: 18px;">stop_circle</span>
-                            Stop All Auctions and Reset Prices
+                            Stop All Auctions
+                        </button>
+                    </form>
+                    
+                    <form action="/reset-all-prices" method="POST">
+                        <button type="submit" class="btn btn-warning">
+                            <span class="material-icons-round" style="font-size: 18px;">restore</span>
+                            Reset All Prices
                         </button>
                     </form>
                 </div>
@@ -607,7 +614,7 @@
                 </button>
             </form>
 
-            <form action="/revert-all-prices" method="POST">
+            <form action="/reset-all-prices" method="POST">
                 <button type="submit" class="btn btn-secondary">
                     <span class="material-icons-round" style="font-size: 18px;">restore</span>
                     Revert All Prices to Original

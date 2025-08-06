@@ -207,10 +207,10 @@ async function shopifyGraphQLRequest(query, variables = {}, retryCount = 0) {
   
   // Reduce logging spam for retries
   if (retryCount === 0) {
-    console.log('--- Shopify GraphQL Request ---');
-    console.log('URL:', url);
-    console.log('Query:', query.replace(/\n/g, ' ').replace(/\s+/g, ' '));
-    console.log('Variables:', JSON.stringify(variables, null, 2));
+  console.log('--- Shopify GraphQL Request ---');
+  console.log('URL:', url);
+  console.log('Query:', query.replace(/\n/g, ' ').replace(/\s+/g, ' '));
+  console.log('Variables:', JSON.stringify(variables, null, 2));
   }
   
   const options = {
@@ -279,7 +279,7 @@ async function fetchAllProducts() {
   
   while (hasNextPage) {
     // Create a GraphQL query with proper cursor-based pagination - ONLY ACTIVE PRODUCTS
-const query = `
+    const query = `
       query getProducts($first: Int!, $after: String) {
         products(first: $first, after: $after, query: "status:active") {
           pageInfo {
@@ -307,7 +307,7 @@ const query = `
           }
         }
       }
-`;
+    `;
     
     const variables = {
       first: PER_PAGE,
@@ -807,7 +807,7 @@ app.post('/auctions/all', async (req, res) => {
   }
 });
 
-// Modified stop-all-auctions route - updated for GraphQL
+// Modified stop-all-auctions route - ONLY stops auctions (does NOT reset prices)
 app.post('/stop-all-auctions', async (req, res) => {
   try {
     console.log('Stopping all auctions immediately...');
@@ -823,27 +823,6 @@ app.post('/stop-all-auctions', async (req, res) => {
       });
     });
     
-    // Check if we have products to reset
-    if (globalAuctionState.products.length === 0) {
-      console.log('No products in memory, fetching all products...');
-      try {
-        const products = await fetchAllProducts();
-        globalAuctionState.products = products;
-      } catch (error) {
-        console.error('Error fetching products:', error);
-        // Continue anyway with an empty product list, to avoid breaking the flow
-        console.log('Continuing with empty product list...');
-      }
-    }
-    
-    // Only try to reset prices if we have products
-    if (globalAuctionState.products && globalAuctionState.products.length > 0) {
-      console.log(`Resetting prices for ${globalAuctionState.products.length} products...`);
-      await resetAllProductPrices();
-    } else {
-      console.log('No products to reset prices for.');
-    }
-    
     // Clear all auction records
     await new Promise((resolve, reject) => {
       db.run('DELETE FROM auctions', (err) => {
@@ -852,13 +831,47 @@ app.post('/stop-all-auctions', async (req, res) => {
       });
     });
     
-    console.log('All auctions stopped and prices reset');
-    globalAuctionState.products = [];
+    console.log('All auctions stopped (prices remain unchanged)');
     
-    res.redirect('/?message=All auctions stopped and prices reset');
+    res.redirect('/?message=All auctions stopped successfully (prices not reset)');
   } catch (error) {
     console.error('Error stopping all auctions:', error);
     res.redirect('/?error=Error stopping all auctions: ' + error.message);
+  }
+});
+
+// NEW: Manual price reset endpoint (separate from stop auctions)
+app.post('/reset-all-prices', async (req, res) => {
+  try {
+    console.log('🔄 Manual price reset requested...');
+    
+    // Check if we have products to reset
+    if (globalAuctionState.products.length === 0) {
+      console.log('No products in memory, fetching all products...');
+      try {
+        const products = await fetchAllProducts();
+        globalAuctionState.products = products;
+      } catch (error) {
+        console.error('Error fetching products:', error);
+        res.redirect('/?error=Error fetching products for reset: ' + error.message);
+        return;
+      }
+    }
+    
+    // Only try to reset prices if we have products
+    if (globalAuctionState.products && globalAuctionState.products.length > 0) {
+      console.log(`🔄 Resetting prices for ${globalAuctionState.products.length} products...`);
+      await resetAllProductPrices();
+      console.log('✅ All prices reset to original values');
+      res.redirect('/?message=All prices have been reset to original values');
+    } else {
+      console.log('No products to reset prices for.');
+      res.redirect('/?message=No products found to reset prices');
+    }
+    
+  } catch (error) {
+    console.error('Error resetting all prices:', error);
+    res.redirect('/?error=Error resetting prices: ' + error.message);
   }
 });
 
@@ -958,7 +971,7 @@ async function updateAllProductPricesModernBulk(discountPercent) {
         
         console.log(`  💰 Including variant: ${variantId} stock=${variant.inventory_quantity} price=${originalPrice} → ${discountedPrice}`);
       }
-    } catch (error) {
+  } catch (error) {
       console.error(`❌ Error preparing product ${product.id}:`, error);
     }
   }
@@ -1359,8 +1372,8 @@ async function updateAllProductPricesLegacy(discountPercent) {
           const individualPromises = variantBatch.map(async variant => {
             try {
               const singleVariantMutation = `
-                mutation updateProductVariant($input: ProductVariantInput!) {
-                  productVariantUpdate(input: $input) {
+            mutation updateProductVariant($input: ProductVariantInput!) {
+              productVariantUpdate(input: $input) {
                     productVariant { id price }
                     userErrors { field message }
                   }
@@ -1797,29 +1810,29 @@ async function resetAllProductPricesLegacy() {
       // Handle direct variants array (legacy format)
       else if (product.variants && Array.isArray(product.variants)) {
         variants = product.variants.map(variant => {
-          let variantId;
-          let compareAtPrice;
-          
-          if (variant.admin_graphql_api_id) {
-            variantId = variant.admin_graphql_api_id;
-            compareAtPrice = variant.compare_at_price || variant.price;
-          } else if (variant.node) {
-            variantId = variant.node.id;
-            compareAtPrice = variant.node.compareAtPrice || variant.node.price;
-          } else {
-            const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
-            variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
-            compareAtPrice = variant.compare_at_price || variant.price;
-          }
+            let variantId;
+            let compareAtPrice;
+            
+            if (variant.admin_graphql_api_id) {
+              variantId = variant.admin_graphql_api_id;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            } else if (variant.node) {
+              variantId = variant.node.id;
+              compareAtPrice = variant.node.compareAtPrice || variant.node.price;
+            } else {
+              const rawVariantId = (variant.id || '').toString().replace(/\.0$/, '');
+              variantId = rawVariantId.includes('gid://') ? rawVariantId : `gid://shopify/ProductVariant/${rawVariantId}`;
+              compareAtPrice = variant.compare_at_price || variant.price;
+            }
 
           console.log(`🔄 Preparing reset for variant ${variantId}: -> ${compareAtPrice}`);
-          
-          return {
-            id: variantId,
-            price: compareAtPrice,
-            compareAtPrice: compareAtPrice
-          };
-        }).filter(v => v.id);
+            
+            return {
+              id: variantId,
+              price: compareAtPrice,
+              compareAtPrice: compareAtPrice
+            };
+          }).filter(v => v.id);
       }
       
       variants = variants.filter(v => v.id);
@@ -2609,39 +2622,7 @@ app.post('/set-compare-prices', async (req, res) => {
   }
 });
 
-app.post('/revert-all-prices', async (req, res) => {
-  try {
-    console.log('Reverting all product prices to original values...');
-    
-    // Fetch all products if they're not already loaded
-    let products;
-    if (globalAuctionState.products.length > 0) {
-      products = globalAuctionState.products;
-    } else {
-      products = await fetchAllProducts();
-    }
-    
-    // Create a temporary state with the fetched products
-    const originalState = {...globalAuctionState};
-    globalAuctionState.products = products;
-    
-    // Reset all product prices but keep the auction state
-    await resetAllProductPrices();
-    
-    // Restore the original state (except for products)
-    globalAuctionState = {
-      ...originalState,
-      products: products,
-      currentDiscountPercent: 0
-    };
-    
-    console.log('All product prices reverted to original values');
-    res.redirect('/?message=All product prices reverted to original values');
-  } catch (error) {
-    console.error('Error reverting product prices:', error);
-    res.redirect('/?error=Error reverting product prices');
-  }
-});
+// OLD /revert-all-prices endpoint removed - now using /reset-all-prices instead
 
 app.post('/auctions', async (req, res) => {
   console.log('Form data received:', req.body);
