@@ -2861,14 +2861,30 @@ app.get('/api/auction-status', (req, res) => {
         const startTime = globalAuctionState.startedAt || globalAuctionState.scheduledStartTime;
         const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
         const discountIncrement = globalAuctionState.startingDiscountPercent;
+        const currentDiscountPercent = globalAuctionState.currentDiscountPercent || 0;
+        const now = new Date();
         
-        // Generate next 10 scheduled drops
+        // Calculate how many intervals should have passed since start
+        const elapsedMs = Math.max(0, now - startTime);
+        const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+        
+        // Generate next 10 scheduled drops starting from the NEXT interval
         for (let i = 1; i <= 10; i++) {
-          const dropTime = new Date(startTime.getTime() + (i * intervalMs));
-          const discountPercent = i * discountIncrement;
+          const futureIntervalNumber = intervalsPassed + i;
+          const dropTime = new Date(startTime.getTime() + (futureIntervalNumber * intervalMs));
+          
+          // Calculate discount based on total intervals from start, not just current
+          let discountPercent;
+          if (globalAuctionState.isRunning) {
+            // For active auctions, add increment to current discount
+            discountPercent = currentDiscountPercent + (i * discountIncrement);
+          } else {
+            // For scheduled auctions, calculate from start
+            discountPercent = futureIntervalNumber * discountIncrement;
+          }
           
           schedule.push({
-            intervalNumber: i,
+            intervalNumber: futureIntervalNumber,
             scheduledTime: dropTime.toISOString(),
             discountPercent: discountPercent,
             formattedTime: moment(dropTime).tz(globalAuctionState.timezone || 'CET').format('HH:mm:ss'),
@@ -2935,14 +2951,30 @@ app.get('/api/auction-status', (req, res) => {
         : new Date(auction.scheduled_start);
       const intervalMs = parseInt(auction.interval_minutes) * 60 * 1000;
       const discountIncrement = globalAuctionState.startingDiscountPercent || 5;
+      const currentDiscountPercent = auction.is_active ? parseInt(auction.reduction_percent) : 0;
+      const now = new Date();
       
-      // Generate next 10 scheduled drops
+      // Calculate how many intervals should have passed since start
+      const elapsedMs = Math.max(0, now - startTime);
+      const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+      
+      // Generate next 10 scheduled drops starting from the NEXT interval
       for (let i = 1; i <= 10; i++) {
-        const dropTime = new Date(startTime.getTime() + (i * intervalMs));
-        const discountPercent = i * discountIncrement;
+        const futureIntervalNumber = intervalsPassed + i;
+        const dropTime = new Date(startTime.getTime() + (futureIntervalNumber * intervalMs));
+        
+        // Calculate discount based on total intervals from start, not just current
+        let discountPercent;
+        if (auction.is_active) {
+          // For active auctions, add increment to current discount
+          discountPercent = currentDiscountPercent + (i * discountIncrement);
+        } else {
+          // For scheduled auctions, calculate from start
+          discountPercent = futureIntervalNumber * discountIncrement;
+        }
         
         schedule.push({
-          intervalNumber: i,
+          intervalNumber: futureIntervalNumber,
           scheduledTime: dropTime.toISOString(),
           discountPercent: discountPercent,
           formattedTime: moment(dropTime).tz(auction.timezone || 'CET').format('HH:mm:ss'),
