@@ -681,6 +681,14 @@
                     Set Compare At Price for All Products
                 </button>
             </form>
+            
+            <form action="/set-manual-discount" method="POST">
+                <input type="hidden" name="discountPercent" value="10">
+                <button type="submit" class="btn btn-success">
+                    <span class="material-icons-round" style="font-size: 18px;">local_offer</span>
+                    Set Price to -10% (Pre-Auction)
+                </button>
+            </form>
 
             <form action="/reset-all-prices" method="POST">
                 <button type="submit" class="btn btn-secondary">
