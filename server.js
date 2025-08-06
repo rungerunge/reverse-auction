@@ -2651,11 +2651,10 @@ app.post('/set-compare-prices', async (req, res) => {
     // Filter for products that have variants to update
     const validProducts = [];
     for (const product of products) {
-      if (!product.variants || !product.variants.edges) continue;
+      if (!product.variants || !Array.isArray(product.variants)) continue;
       
-      const hasVariantsNeedingUpdate = product.variants.edges.some(variantEdge => {
-        const variant = variantEdge.node;
-        return !variant.compareAtPrice || variant.compareAtPrice === "0.00" || parseFloat(variant.compareAtPrice) === 0;
+      const hasVariantsNeedingUpdate = product.variants.some(variant => {
+        return !variant.compare_at_price || variant.compare_at_price === "0.00" || parseFloat(variant.compare_at_price) === 0;
       });
       
       if (hasVariantsNeedingUpdate) {
@@ -2690,11 +2689,9 @@ app.post('/set-compare-prices', async (req, res) => {
           const variantsToUpdate = [];
           
           // Collect variants that need compare-at price updates
-          for (const variantEdge of product.variants.edges) {
-            const variant = variantEdge.node;
-            
+          for (const variant of product.variants) {
             // Skip if compare-at price is already set
-            if (variant.compareAtPrice && variant.compareAtPrice !== "0.00" && parseFloat(variant.compareAtPrice) > 0) {
+            if (variant.compare_at_price && variant.compare_at_price !== "0.00" && parseFloat(variant.compare_at_price) > 0) {
               continue;
             }
             
@@ -2704,7 +2701,7 @@ app.post('/set-compare-prices', async (req, res) => {
             }
             
             variantsToUpdate.push({
-              id: variant.id,
+              id: variant.admin_graphql_api_id,
               currentPrice: variant.price,
               newCompareAtPrice: variant.price
             });
