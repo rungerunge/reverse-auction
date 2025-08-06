@@ -333,6 +333,136 @@
             font-weight: 500;
         }
         
+        /* Auction Dashboard Styling */
+        .auction-dashboard {
+            margin-bottom: 2rem;
+        }
+        
+        .auction-status-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .auction-status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .status-item {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: var(--border-radius-md);
+            padding: 1rem;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        
+        .status-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 0.5rem;
+        }
+        
+        .status-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+        
+        .countdown-display {
+            font-family: 'Courier New', monospace;
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: var(--border-radius-lg);
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        
+        /* Timeline Styling */
+        .timeline-container {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+            position: relative;
+        }
+        
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem 0;
+            border-left: 3px solid #e2e8f0;
+            margin-left: 1rem;
+            padding-left: 2rem;
+            position: relative;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e2e8f0;
+        }
+        
+        .timeline-item.active {
+            border-left-color: #ff6b6b;
+        }
+        
+        .timeline-item.active::before {
+            background: #ff6b6b;
+            box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.3);
+        }
+        
+        .timeline-item.upcoming {
+            border-left-color: #74b9ff;
+        }
+        
+        .timeline-item.upcoming::before {
+            background: #74b9ff;
+        }
+        
+        .timeline-content {
+            flex: 1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .timeline-time {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #2d3748;
+        }
+        
+        .timeline-discount {
+            font-weight: 700;
+            font-size: 1.2rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            min-width: 70px;
+            text-align: center;
+        }
+        
+        .timeline-countdown {
+            font-size: 0.9rem;
+            color: #718096;
+            font-weight: 500;
+            margin-top: 0.25rem;
+        }
+        
         .alert {
             padding: var(--spacing-md);
             border-radius: var(--border-radius-md);
@@ -569,31 +699,44 @@
             </div>
         <% } %>
 
-        <!-- -------- SCHEDULED AUCTIONS SECTION -------- -->
-        <div class="card">
-            <div class="card-title">
-                <span class="material-icons-round">schedule</span>
-                Scheduled Auctions
-            </div>
-            <div id="scheduledAuctionsSection">
-                <div id="scheduledAuctionsLoading" class="flex align-items-center gap-2">
-                    <span class="material-icons-round">sync</span>
-                    <span>Checking for scheduled auctions...</span>
+        <!-- -------- AUCTION STATUS & TIMELINE SECTION -------- -->
+        <div class="auction-dashboard">
+            <div class="card">
+                <div class="card-title">
+                    <span class="material-icons-round">dashboard</span>
+                    Auction Status & Timeline
                 </div>
-                <div id="scheduledAuctionsContent" style="display: none;">
-                    <!-- Content will be loaded via JavaScript -->
+                
+                <!-- Current Status -->
+                <div id="auctionStatusSection">
+                    <div id="auctionStatusLoading" class="flex align-items-center gap-2 p-3">
+                        <span class="material-icons-round">sync</span>
+                        <span>Indlæser auction status...</span>
+                    </div>
+                    <div id="auctionStatusContent" style="display: none;">
+                        <!-- Content will be loaded via JavaScript -->
+                    </div>
                 </div>
-                <div id="noScheduledAuctions" style="display: none; font-style: italic; color: var(--gray-600);">
-                    No auctions currently scheduled.
+                
+                <!-- Price Drop Timeline -->
+                <div id="priceTimelineSection" class="mt-4">
+                    <h4 class="font-weight-semibold mb-3 flex align-items-center gap-2">
+                        <span class="material-icons-round" style="font-size: 20px;">timeline</span>
+                        Kommende Pris Ændringer
+                    </h4>
+                    <div id="priceTimeline">
+                        <div class="text-muted">Henter tidslinje...</div>
+                    </div>
                 </div>
-                <div class="flex gap-2 mt-3">
-                    <button id="refreshScheduledAuctions" class="btn btn-secondary">
+                
+                <div class="flex gap-2 mt-4">
+                    <button id="refreshAuctionStatus" class="btn btn-secondary">
                         <span class="material-icons-round" style="font-size: 18px;">refresh</span>
-                        Refresh Auctions
+                        Opdater Status
                     </button>
-                    <a href="/api/scheduled-auctions" target="_blank" class="btn btn-secondary">
+                    <a href="/api/auction-status" target="_blank" class="btn btn-secondary">
                         <span class="material-icons-round" style="font-size: 18px;">data_object</span>
-                        View API Data
+                        Se API Data
                     </a>
                 </div>
             </div>
@@ -1091,82 +1234,240 @@
     </style>
     
     <script>
-        // Function to fetch and display price drop schedule
-        async function loadPriceSchedule() {
+        // Utility function to format countdown as MM:SS
+        function formatCountdown(totalSeconds) {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        // Function to load and display auction status
+        async function loadAuctionStatus() {
             try {
                 const response = await fetch('/api/auction-status');
                 const data = await response.json();
                 
-                const scheduleContainer = document.getElementById('price-schedule');
-                if (!scheduleContainer) return;
+                console.log('Auction data:', data);
+                
+                // Update status section
+                const statusContainer = document.getElementById('auctionStatusContent');
+                const loadingContainer = document.getElementById('auctionStatusLoading');
+                
+                if (!statusContainer || !loadingContainer) return;
                 
                 if (!data.isRunning && !data.isScheduled) {
-                    scheduleContainer.innerHTML = '<div class="text-muted">Ingen aktiv auktion</div>';
-                    return;
-                }
-                
-                if (!data.schedule || data.schedule.length === 0) {
-                    scheduleContainer.innerHTML = '<div class="text-muted">Ingen tidsplan tilgængelig</div>';
-                    return;
-                }
-                
-                const now = new Date();
-                let html = '';
-                
-                // Show only next 5 drops for clarity
-                data.schedule.slice(0, 5).forEach((item, index) => {
-                    const dropTime = new Date(item.scheduledTime);
-                    const isPast = dropTime < now;
-                    const isCurrent = !isPast && index === 0; // First upcoming is current
-                    const isUpcoming = !isPast && !isCurrent;
-                    
-                    let cssClass = 'schedule-item';
-                    if (isCurrent) cssClass += ' current';
-                    else if (isUpcoming) cssClass += ' upcoming';
-                    
-                    const timeUntil = Math.max(0, dropTime - now);
-                    const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
-                    const minutesUntil = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
-                    const secondsUntil = Math.floor((timeUntil % (1000 * 60)) / 1000);
-                    
-                    let countdownText = '';
-                    if (!isPast) {
-                        if (hoursUntil > 0) {
-                            countdownText = `om ${hoursUntil}t ${minutesUntil}m`;
-                        } else if (minutesUntil > 0) {
-                            countdownText = `om ${minutesUntil}m ${secondsUntil}s`;
-                        } else {
-                            countdownText = `om ${secondsUntil}s`;
-                        }
-                    }
-                    
-                    html += `
-                        <div class="${cssClass}">
-                            <div class="flex align-items-center gap-3">
-                                <div class="schedule-time">${item.formattedTime}</div>
-                                ${countdownText ? `<div class="schedule-countdown">(${countdownText})</div>` : ''}
+                    statusContainer.innerHTML = `
+                        <div class="text-center p-4">
+                            <div class="text-muted mb-2">
+                                <span class="material-icons-round" style="font-size: 48px;">schedule_send</span>
                             </div>
-                            <div class="schedule-discount">-${item.discountPercent}%</div>
+                            <h4>Ingen Aktiv Auktion</h4>
+                            <p class="text-muted">Start en ny auktion for at se status og tidslinje</p>
                         </div>
                     `;
-                });
+                } else {
+                    let statusHtml = '';
+                    
+                    if (data.isRunning) {
+                        // Running auction
+                        const nextUpdateTime = new Date(data.nextUpdateTime);
+                        const now = new Date();
+                        const timeUntilNext = Math.max(0, Math.floor((nextUpdateTime - now) / 1000));
+                        
+                        statusHtml = `
+                            <div class="auction-status-card">
+                                <h3 class="mb-3">🔥 Auktion Kører</h3>
+                                <div class="auction-status-grid">
+                                    <div class="status-item">
+                                        <div class="status-label">Nuværende Rabat</div>
+                                        <div class="status-value">${data.currentDiscountPercent}%</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Interval</div>
+                                        <div class="status-value">${data.intervalMinutes} min</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Næste Økning</div>
+                                        <div class="status-value">${data.startingDiscountPercent}%</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Næste Update</div>
+                                        <div class="countdown-display" id="mainCountdown">${formatCountdown(timeUntilNext)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else if (data.isScheduled) {
+                        // Scheduled auction
+                        const startTime = new Date(data.scheduledStartTime);
+                        const now = new Date();
+                        const timeUntilStart = Math.max(0, Math.floor((startTime - now) / 1000));
+                        
+                        statusHtml = `
+                            <div class="auction-status-card">
+                                <h3 class="mb-3">📅 Auktion Planlagt</h3>
+                                <div class="auction-status-grid">
+                                    <div class="status-item">
+                                        <div class="status-label">Start Tidspunkt</div>
+                                        <div class="status-value">${data.formattedScheduledTime || 'TBD'}</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Første Rabat</div>
+                                        <div class="status-value">${data.startingDiscountPercent}%</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Interval</div>
+                                        <div class="status-value">${data.intervalMinutes} min</div>
+                                    </div>
+                                    <div class="status-item">
+                                        <div class="status-label">Starter Om</div>
+                                        <div class="countdown-display" id="mainCountdown">${formatCountdown(timeUntilStart)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    statusContainer.innerHTML = statusHtml;
+                }
                 
-                scheduleContainer.innerHTML = html;
+                // Update timeline
+                loadPriceTimeline(data);
+                
+                // Show content, hide loading
+                loadingContainer.style.display = 'none';
+                statusContainer.style.display = 'block';
                 
             } catch (error) {
-                console.error('Error loading price schedule:', error);
-                const scheduleContainer = document.getElementById('price-schedule');
-                if (scheduleContainer) {
-                    scheduleContainer.innerHTML = '<div class="text-muted">Fejl ved indlæsning af tidsplan</div>';
+                console.error('Error loading auction status:', error);
+                const statusContainer = document.getElementById('auctionStatusContent');
+                if (statusContainer) {
+                    statusContainer.innerHTML = `
+                        <div class="text-center p-4">
+                            <div class="text-danger mb-2">
+                                <span class="material-icons-round" style="font-size: 48px;">error</span>
+                            </div>
+                            <h4>Fejl ved indlæsning</h4>
+                            <p class="text-muted">Kunne ikke hente auction status</p>
+                        </div>
+                    `;
                 }
             }
         }
         
-        // Load schedule on page load
-        document.addEventListener('DOMContentLoaded', loadPriceSchedule);
+        // Function to load and display price timeline
+        function loadPriceTimeline(data) {
+            const timelineContainer = document.getElementById('priceTimeline');
+            if (!timelineContainer) return;
+            
+            if (!data.schedule || data.schedule.length === 0) {
+                timelineContainer.innerHTML = '<div class="text-muted">Ingen tidsplan tilgængelig</div>';
+                return;
+            }
+            
+            const now = new Date();
+            let html = '<div class="timeline-container">';
+            
+            // Show next 6 price drops
+            data.schedule.slice(0, 6).forEach((item, index) => {
+                const dropTime = new Date(item.scheduledTime);
+                const isPast = dropTime < now;
+                const isCurrent = !isPast && index === 0; // First upcoming is current
+                const isUpcoming = !isPast && !isCurrent;
+                
+                let cssClass = 'timeline-item';
+                if (isCurrent) cssClass += ' active';
+                else if (isUpcoming) cssClass += ' upcoming';
+                
+                const timeUntil = Math.max(0, dropTime - now);
+                const totalSecondsUntil = Math.floor(timeUntil / 1000);
+                const hoursUntil = Math.floor(totalSecondsUntil / 3600);
+                const minutesUntil = Math.floor((totalSecondsUntil % 3600) / 60);
+                const secondsUntil = totalSecondsUntil % 60;
+                
+                let countdownText = '';
+                if (!isPast) {
+                    if (hoursUntil > 0) {
+                        countdownText = `om ${hoursUntil}t ${minutesUntil.toString().padStart(2, '0')}m`;
+                    } else {
+                        countdownText = `om ${formatCountdown(totalSecondsUntil)}`;
+                    }
+                }
+                
+                html += `
+                    <div class="${cssClass}">
+                        <div class="timeline-content">
+                            <div>
+                                <div class="timeline-time">${item.formattedTime}</div>
+                                ${countdownText ? `<div class="timeline-countdown">${countdownText}</div>` : ''}
+                            </div>
+                            <div class="timeline-discount">-${item.discountPercent}%</div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            timelineContainer.innerHTML = html;
+        }
         
-        // Update schedule every 30 seconds
-        setInterval(loadPriceSchedule, 30000);
+        // Function to update all countdowns
+        function updateCountdowns() {
+            const mainCountdown = document.getElementById('mainCountdown');
+            if (mainCountdown) {
+                const currentText = mainCountdown.textContent;
+                const match = currentText.match(/(\d+):(\d+)/);
+                if (match) {
+                    const minutes = parseInt(match[1]);
+                    const seconds = parseInt(match[2]);
+                    const totalSeconds = minutes * 60 + seconds;
+                    
+                    if (totalSeconds > 0) {
+                        const newTotalSeconds = totalSeconds - 1;
+                        mainCountdown.textContent = formatCountdown(newTotalSeconds);
+                        
+                        // Reload data when countdown reaches 0
+                        if (newTotalSeconds === 0) {
+                            setTimeout(loadAuctionStatus, 1000);
+                        }
+                    }
+                }
+            }
+            
+            // Update timeline countdowns
+            const timelineCountdowns = document.querySelectorAll('.timeline-countdown');
+            timelineCountdowns.forEach(countdown => {
+                const text = countdown.textContent;
+                const match = text.match(/om (\d+):(\d+)/);
+                if (match) {
+                    const minutes = parseInt(match[1]);
+                    const seconds = parseInt(match[2]);
+                    const totalSeconds = minutes * 60 + seconds;
+                    
+                    if (totalSeconds > 0) {
+                        const newTotalSeconds = totalSeconds - 1;
+                        countdown.textContent = `om ${formatCountdown(newTotalSeconds)}`;
+                    }
+                }
+            });
+        }
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAuctionStatus();
+            
+            // Update countdowns every second
+            setInterval(updateCountdowns, 1000);
+            
+            // Refresh data every 30 seconds
+            setInterval(loadAuctionStatus, 30000);
+            
+            // Refresh button
+            const refreshButton = document.getElementById('refreshAuctionStatus');
+            if (refreshButton) {
+                refreshButton.addEventListener('click', loadAuctionStatus);
+            }
+        });
     </script>
 </body>
 </html> 
