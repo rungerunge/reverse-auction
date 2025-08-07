@@ -2944,7 +2944,7 @@ app.get('/api/auction-status', (req, res) => {
         const intervalsPassed = Math.floor(elapsedMs / intervalMs);
         
         // Generate schedule until 100% discount
-        const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement);
+        const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement) + 1; // +1 to include 100%
         const intervalsToShow = Math.min(maxIntervals, 50); // Cap at 50 to prevent excessive data
         
         for (let i = 1; i <= intervalsToShow; i++) {
@@ -3053,7 +3053,7 @@ app.get('/api/auction-status', (req, res) => {
       const intervalsPassed = Math.floor(elapsedMs / intervalMs);
       
       // Generate schedule until 100% discount
-      const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement);
+      const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement) + 1; // +1 to include 100%
       const intervalsToShow = Math.min(maxIntervals, 50); // Cap at 50 to prevent excessive data
       
       for (let i = 1; i <= intervalsToShow; i++) {
