@@ -703,6 +703,24 @@
             padding: 3rem 1rem;
             color: var(--gray-600);
         }
+        
+        /* Preview section styles */
+        #auctionPreviewSection {
+            border: 2px solid var(--primary-color);
+            background: linear-gradient(135deg, rgba(67, 97, 238, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+        }
+        
+        #auctionPreviewSection .card-title {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: -1.5rem -1.5rem 1.5rem -1.5rem;
+            padding: 1rem 1.5rem;
+        }
+        
+        .preview-summary-card {
+            border-radius: var(--border-radius-lg);
+            overflow: hidden;
+        }
     </style>
 </head>
 <body>
@@ -951,6 +969,10 @@
                 </div>
                 
                 <div class="flex gap-2">
+                    <button type="button" id="previewAuction" class="btn btn-outline-primary">
+                        <span class="material-icons-round" style="font-size: 18px;">preview</span>
+                        Forhåndsvisning
+                    </button>
                     <button type="submit" class="btn btn-primary">
                         <span class="material-icons-round" style="font-size: 18px;">play_arrow</span>
                         Start Auction
@@ -962,6 +984,32 @@
                 </div>
             </form>
             <form id="stopForm" action="/stop-all-auctions" method="POST" style="display:none;"></form>
+        </div>
+
+        <!-- Auction Preview Section -->
+        <div id="auctionPreviewSection" class="card mt-4" style="display: none;">
+            <div class="card-title">
+                <span class="material-icons-round">visibility</span>
+                Forhåndsvisning af Auction Tidslinje
+            </div>
+            <div class="card-body">
+                <div id="previewSummary" class="mb-4">
+                    <!-- Summary will be populated here -->
+                </div>
+                <div id="previewTimeline">
+                    <!-- Timeline will be populated here -->
+                </div>
+                <div class="flex gap-2 mt-4">
+                    <button id="confirmStartAuction" class="btn btn-success">
+                        <span class="material-icons-round" style="font-size: 18px;">check_circle</span>
+                        Bekræft og Start Auction
+                    </button>
+                    <button id="editAuction" class="btn btn-secondary">
+                        <span class="material-icons-round" style="font-size: 18px;">edit</span>
+                        Rediger Indstillinger
+                    </button>
+                </div>
+            </div>
         </div>
 
         <div class="card">
@@ -1545,6 +1593,147 @@
             completeContainer.innerHTML = html;
         }
         
+        // Function to generate auction preview
+        function generateAuctionPreview() {
+            const form = document.querySelector('form[action="/auctions/all"]');
+            const formData = new FormData(form);
+            
+            const interval = parseInt(formData.get('interval')) || 30;
+            const reductionPercent = parseInt(formData.get('reductionPercent')) || 5;
+            const initialDiscount = parseInt(formData.get('initialDiscount')) || 15;
+            const startOption = formData.get('startOption');
+            const scheduledTime = formData.get('scheduledTime');
+            const timezone = formData.get('timezone') || 'CET';
+            
+            // Calculate start time
+            let startTime;
+            if (startOption === 'scheduled' && scheduledTime) {
+                startTime = new Date(scheduledTime);
+            } else {
+                startTime = new Date();
+            }
+            
+            // Generate timeline
+            const schedule = [];
+            let currentDiscount = initialDiscount;
+            let currentTime = new Date(startTime);
+            
+            // Add initial discount at start time
+            schedule.push({
+                interval: 0,
+                time: new Date(currentTime),
+                discount: currentDiscount,
+                isInitial: true
+            });
+            
+            // Generate intervals until 100%
+            let intervalNumber = 1;
+            while (currentDiscount < 100) {
+                currentTime = new Date(startTime.getTime() + (intervalNumber * interval * 60 * 1000));
+                currentDiscount = Math.min(initialDiscount + (intervalNumber * reductionPercent), 100);
+                
+                schedule.push({
+                    interval: intervalNumber,
+                    time: new Date(currentTime),
+                    discount: currentDiscount,
+                    isInitial: false
+                });
+                
+                intervalNumber++;
+                if (currentDiscount >= 100) break;
+            }
+            
+            return {
+                interval,
+                reductionPercent,
+                initialDiscount,
+                startTime,
+                timezone,
+                schedule,
+                totalDuration: schedule[schedule.length - 1].time - startTime,
+                totalIntervals: schedule.length
+            };
+        }
+        
+        // Function to display auction preview
+        function displayAuctionPreview(previewData) {
+            const previewSection = document.getElementById('auctionPreviewSection');
+            const summaryContainer = document.getElementById('previewSummary');
+            const timelineContainer = document.getElementById('previewTimeline');
+            
+            // Generate summary
+            const totalHours = Math.floor(previewData.totalDuration / (1000 * 60 * 60));
+            const totalMinutes = Math.floor((previewData.totalDuration % (1000 * 60 * 60)) / (1000 * 60));
+            const finalTime = previewData.schedule[previewData.schedule.length - 1].time;
+            
+            summaryContainer.innerHTML = `
+                <div class="alert" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+                    <h5 style="color: white; margin-bottom: 1rem;">📊 Auction Oversigt</h5>
+                    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                        <div>
+                            <strong>Start Tidspunkt:</strong><br>
+                            ${previewData.startTime.toLocaleString('da-DK', { timeZone: previewData.timezone })}
+                        </div>
+                        <div>
+                            <strong>Slutning (100%):</strong><br>
+                            ${finalTime.toLocaleString('da-DK', { timeZone: previewData.timezone })}
+                        </div>
+                        <div>
+                            <strong>Total Varighed:</strong><br>
+                            ${totalHours}t ${totalMinutes}m
+                        </div>
+                        <div>
+                            <strong>Antal Intervaller:</strong><br>
+                            ${previewData.totalIntervals} prisændringer
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Generate timeline
+            let timelineHtml = '<div class="table-responsive"><table class="table table-striped">';
+            timelineHtml += '<thead><tr><th>Interval</th><th>Tid</th><th>Rabat</th><th>Beskrivelse</th></tr></thead><tbody>';
+            
+            previewData.schedule.forEach((item, index) => {
+                const timeStr = item.time.toLocaleString('da-DK', { 
+                    timeZone: previewData.timezone,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit'
+                });
+                
+                let description = '';
+                let rowClass = '';
+                
+                if (item.isInitial) {
+                    description = '🚀 Initial rabat (med det samme)';
+                    rowClass = 'table-success';
+                } else if (item.discount >= 100) {
+                    description = '🎯 GRATIS - Maksimal rabat nået';
+                    rowClass = 'table-warning';
+                } else {
+                    description = `📉 +${previewData.reductionPercent}% prisreduktion`;
+                }
+                
+                timelineHtml += `
+                    <tr class="${rowClass}">
+                        <td>${item.isInitial ? 'Start' : '#' + item.interval}</td>
+                        <td><strong>${timeStr}</strong></td>
+                        <td><span class="badge badge-primary">${item.discount}%</span></td>
+                        <td>${description}</td>
+                    </tr>
+                `;
+            });
+            
+            timelineHtml += '</tbody></table></div>';
+            timelineContainer.innerHTML = timelineHtml;
+            
+            // Show preview section
+            previewSection.style.display = 'block';
+            previewSection.scrollIntoView({ behavior: 'smooth' });
+        }
+        
         // Function to update all countdowns
         function updateCountdowns() {
             const mainCountdown = document.getElementById('mainCountdown');
@@ -1616,6 +1805,37 @@
                 hideCompleteBtn.addEventListener('click', function() {
                     completeSection.style.display = 'none';
                     showCompleteBtn.style.display = 'block';
+                });
+            }
+            
+            // Auction preview functionality
+            const previewBtn = document.getElementById('previewAuction');
+            const confirmBtn = document.getElementById('confirmStartAuction');
+            const editBtn = document.getElementById('editAuction');
+            const previewSection = document.getElementById('auctionPreviewSection');
+            const auctionForm = document.querySelector('form[action="/auctions/all"]');
+            
+            if (previewBtn) {
+                previewBtn.addEventListener('click', function() {
+                    const previewData = generateAuctionPreview();
+                    displayAuctionPreview(previewData);
+                });
+            }
+            
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', function() {
+                    // Submit the original form
+                    if (auctionForm) {
+                        auctionForm.submit();
+                    }
+                });
+            }
+            
+            if (editBtn) {
+                editBtn.addEventListener('click', function() {
+                    // Hide preview and scroll back to form
+                    previewSection.style.display = 'none';
+                    auctionForm.scrollIntoView({ behavior: 'smooth' });
                 });
             }
         });
