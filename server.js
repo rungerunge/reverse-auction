@@ -2549,14 +2549,20 @@ schedule.scheduleJob('* * * * *', async () => {
       console.log(`SCHEDULER: Next scheduled update is at: ${nextScheduledUpdate.toISOString()}`);
       
       // Check if we've passed a scheduled update time and haven't processed it yet
-      const expectedDiscountPercent = (intervalsPassed + 1) * globalAuctionState.startingDiscountPercent;
+      // Calculate expected discount for intervals that should have happened
+      const expectedDiscountPercent = globalAuctionState.startingDiscountPercent + (intervalsPassed * globalAuctionState.startingDiscountPercent);
       
-      if (now >= currentScheduledUpdate && globalAuctionState.currentDiscountPercent < expectedDiscountPercent) {
+      // Check if it's time for the next price update
+      if (now >= nextScheduledUpdate) {
         console.log('!!! SCHEDULED PRICE UPDATE DUE !!!');
-        console.log(`SCHEDULER: Expected discount: ${expectedDiscountPercent}%, Current: ${globalAuctionState.currentDiscountPercent}%`);
         
-        // Set the discount to the expected level (in case we missed intervals)
-        globalAuctionState.currentDiscountPercent = expectedDiscountPercent;
+        // Calculate the new discount level
+        const newDiscountPercent = Math.min(globalAuctionState.currentDiscountPercent + globalAuctionState.startingDiscountPercent, 100);
+        
+        console.log(`SCHEDULER: Updating discount from ${globalAuctionState.currentDiscountPercent}% to ${newDiscountPercent}%`);
+        
+        // Set the new discount level
+        globalAuctionState.currentDiscountPercent = newDiscountPercent;
         globalAuctionState.lastUpdateTime = now;
         
         console.log(`SCHEDULER: Setting discount to ${globalAuctionState.currentDiscountPercent}% (interval ${intervalsPassed + 1})`);
@@ -2564,14 +2570,17 @@ schedule.scheduleJob('* * * * *', async () => {
         // Apply the new discount
         await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
         
-        // Update the database with the next scheduled time (not now + interval)
+        // Calculate the NEXT update time (after the one we just processed)
+        const followingUpdateTime = new Date(startTime.getTime() + ((intervalsPassed + 2) * intervalMs));
+        
+        // Update the database with the following scheduled time
         await new Promise((resolve, reject) => {
           db.run(
             'UPDATE auctions SET reduction_percent = ?, current_price = ?, next_update = ? WHERE product_id = ?',
             [
               globalAuctionState.currentDiscountPercent, 
               globalAuctionState.currentDiscountPercent,
-              nextScheduledUpdate.toISOString().replace('T', ' ').split('.')[0], 
+              followingUpdateTime.toISOString().replace('T', ' ').split('.')[0], 
               'global'
             ],
             (err) => {
@@ -2585,7 +2594,7 @@ schedule.scheduleJob('* * * * *', async () => {
           );
         });
         
-        console.log(`SCHEDULER: Next update scheduled for EXACT time: ${nextScheduledUpdate.toISOString()}`);
+        console.log(`SCHEDULER: Next update scheduled for EXACT time: ${followingUpdateTime.toISOString()}`);
       } else {
         const timeToNextUpdate = nextScheduledUpdate - now;
         const minutesRemaining = Math.floor(timeToNextUpdate / 60000);
