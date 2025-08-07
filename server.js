@@ -2945,11 +2945,17 @@ app.get('/api/auction-status', (req, res) => {
             dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
             discountPercent = currentDiscountPercent + (i * discountIncrement);
           } else {
-            // For scheduled auctions, start from interval 1 (first drop after start)
-            intervalNumber = i;
-            dropTime = new Date(startTime.getTime() + (i * intervalMs));
-            // FIXED: Add increment to current discount (e.g., 10% + 5% = 15% for first drop)
-            discountPercent = currentDiscountPercent + (i * discountIncrement);
+            // For scheduled auctions, show the scheduled start time and subsequent intervals
+            if (i === 1) {
+              // First entry shows the actual start time (when initial discount is applied)
+              dropTime = new Date(startTime.getTime());
+              discountPercent = currentDiscountPercent;
+            } else {
+              // Subsequent intervals after start time
+              intervalNumber = i - 1; // Adjust because first drop is at start time
+              dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
+              discountPercent = currentDiscountPercent + (intervalNumber * discountIncrement);
+            }
           }
           
           schedule.push({
@@ -3039,11 +3045,17 @@ app.get('/api/auction-status', (req, res) => {
           dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
           discountPercent = currentDiscountPercent + (i * discountIncrement);
         } else {
-          // For scheduled auctions, start from interval 1 (first drop after start)
-          intervalNumber = i;
-          dropTime = new Date(startTime.getTime() + (i * intervalMs));
-          // FIXED: Add increment to current discount (e.g., 10% + 5% = 15% for first drop)
-          discountPercent = currentDiscountPercent + (i * discountIncrement);
+          // For scheduled auctions, show the scheduled start time and subsequent intervals
+          if (i === 1) {
+            // First entry shows the actual start time (when initial discount is applied)
+            dropTime = new Date(startTime.getTime());
+            discountPercent = currentDiscountPercent;
+          } else {
+            // Subsequent intervals after start time
+            intervalNumber = i - 1; // Adjust because first drop is at start time
+            dropTime = new Date(startTime.getTime() + (intervalNumber * intervalMs));
+            discountPercent = currentDiscountPercent + (intervalNumber * discountIncrement);
+          }
         }
         
         schedule.push({
