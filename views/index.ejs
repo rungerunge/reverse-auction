@@ -1393,7 +1393,7 @@
                                     </div>
                                     <div class="status-item">
                                         <div class="status-label">Næste Økning</div>
-                                        <div class="status-value">${data.startingDiscountPercent}%</div>
+                                        <div class="status-value">${data.schedule && data.schedule.length > 0 ? data.schedule[0].discountPercent : data.startingDiscountPercent}%</div>
                                     </div>
                                     <div class="status-item">
                                         <div class="status-label">Næste Update</div>
