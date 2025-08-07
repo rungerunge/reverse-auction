@@ -463,6 +463,35 @@
             margin-top: 0.25rem;
         }
         
+        .timeline-item.summary {
+            opacity: 0.7;
+            border-style: dashed;
+        }
+        
+        .timeline-item.summary::before {
+            background: #a0aec0;
+        }
+        
+        .timeline-item.summary .timeline-discount {
+            background: linear-gradient(135deg, #a0aec0 0%, #718096 100%);
+        }
+        
+        .timeline-item.final {
+            border: 2px solid #38a169;
+            background: rgba(56, 161, 105, 0.05);
+        }
+        
+        .timeline-item.final::before {
+            background: #38a169;
+            width: 12px;
+            height: 12px;
+        }
+        
+        .timeline-item.final .timeline-discount {
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+            font-size: 1.3rem;
+        }
+        
         .alert {
             padding: var(--spacing-md);
             border-radius: var(--border-radius-md);
@@ -727,6 +756,29 @@
                     <div id="priceTimeline">
                         <div class="text-muted">Henter tidslinje...</div>
                     </div>
+                    <button id="showCompleteTimeline" class="btn btn-outline-primary mt-3" style="display: none;">
+                        <span class="material-icons-round" style="font-size: 18px;">expand_more</span>
+                        Vis Komplet Tidsplan til 100%
+                    </button>
+                </div>
+                
+                <!-- Complete Timeline Overview -->
+                <div id="completeTimelineSection" class="mt-4" style="display: none;">
+                    <h4 class="font-weight-semibold mb-3 flex align-items-center gap-2">
+                        <span class="material-icons-round" style="font-size: 20px;">view_list</span>
+                        Komplet Tidsplan (Til 100% Rabat)
+                    </h4>
+                    <div class="card">
+                        <div class="card-body">
+                            <div id="completeTimeline" style="max-height: 400px; overflow-y: auto;">
+                                <div class="text-muted">Henter komplet tidsplan...</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="toggleCompleteTimeline" class="btn btn-outline-secondary mt-3">
+                        <span class="material-icons-round" style="font-size: 18px;">expand_less</span>
+                        Skjul Komplet Tidsplan
+                    </button>
                 </div>
                 
                 <div class="flex gap-2 mt-4">
@@ -1338,6 +1390,7 @@
                 
                 // Update timeline
                 loadPriceTimeline(data);
+                loadCompleteTimeline(data);
                 
                 // Show content, hide loading
                 loadingContainer.style.display = 'none';
@@ -1373,8 +1426,9 @@
             const now = new Date();
             let html = '<div class="timeline-container">';
             
-            // Show next 6 price drops
-            data.schedule.slice(0, 6).forEach((item, index) => {
+            // Show all price drops until 100% (or max 20 for performance)
+            const maxItemsToShow = Math.min(data.schedule.length, 20);
+            data.schedule.slice(0, maxItemsToShow).forEach((item, index) => {
                 const dropTime = new Date(item.scheduledTime);
                 const isPast = dropTime < now;
                 const isCurrent = !isPast && index === 0; // First upcoming is current
@@ -1412,8 +1466,83 @@
                 `;
             });
             
+            // Add summary if there are more intervals beyond what we're showing
+            if (data.schedule.length > maxItemsToShow) {
+                const remainingIntervals = data.schedule.length - maxItemsToShow;
+                const finalDiscount = data.schedule[data.schedule.length - 1].discountPercent;
+                const finalTime = moment(data.schedule[data.schedule.length - 1].scheduledTime).tz(data.timezone || 'CET').format('HH:mm:ss');
+                
+                html += `
+                    <div class="timeline-item summary">
+                        <div class="timeline-content">
+                            <div>
+                                <div class="timeline-time">...</div>
+                                <div class="timeline-countdown">+${remainingIntervals} mere intervaller</div>
+                            </div>
+                            <div class="timeline-discount">→ ${finalDiscount}%</div>
+                        </div>
+                    </div>
+                    <div class="timeline-item final">
+                        <div class="timeline-content">
+                            <div>
+                                <div class="timeline-time">${finalTime}</div>
+                                <div class="timeline-countdown">Slutpris</div>
+                            </div>
+                            <div class="timeline-discount">-${finalDiscount}%</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
             html += '</div>';
             timelineContainer.innerHTML = html;
+            
+            // Show the "View Complete Timeline" button if there are many intervals
+            const showCompleteBtn = document.getElementById('showCompleteTimeline');
+            if (showCompleteBtn && data.schedule.length > 10) {
+                showCompleteBtn.style.display = 'block';
+            }
+        }
+        
+        // Function to load complete timeline
+        function loadCompleteTimeline(data) {
+            const completeContainer = document.getElementById('completeTimeline');
+            if (!completeContainer || !data.schedule || data.schedule.length === 0) return;
+            
+            const now = new Date();
+            let html = '<div class="table-responsive"><table class="table table-sm table-striped">';
+            html += '<thead><tr><th>Interval</th><th>Tid</th><th>Rabat</th><th>Status</th></tr></thead><tbody>';
+            
+            data.schedule.forEach((item, index) => {
+                const dropTime = new Date(item.scheduledTime);
+                const isPast = dropTime < now;
+                const isCurrent = !isPast && index === 0;
+                
+                let statusBadge = '';
+                if (isPast) {
+                    statusBadge = '<span class="badge badge-secondary">Afsluttet</span>';
+                } else if (isCurrent) {
+                    statusBadge = '<span class="badge badge-primary">Næste</span>';
+                } else {
+                    statusBadge = '<span class="badge badge-light">Kommende</span>';
+                }
+                
+                let rowClass = '';
+                if (isCurrent) rowClass = 'table-primary';
+                else if (isPast) rowClass = 'table-secondary';
+                
+                html += `
+                    <tr class="${rowClass}">
+                        <td>#${index + 1}</td>
+                        <td>${item.formattedDateTime}</td>
+                        <td><strong>${item.discountPercent}%</strong></td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            completeContainer.innerHTML = html;
         }
         
         // Function to update all countdowns
@@ -1471,6 +1600,23 @@
             const refreshButton = document.getElementById('refreshAuctionStatus');
             if (refreshButton) {
                 refreshButton.addEventListener('click', loadAuctionStatus);
+            }
+            
+            // Complete timeline toggle buttons
+            const showCompleteBtn = document.getElementById('showCompleteTimeline');
+            const hideCompleteBtn = document.getElementById('toggleCompleteTimeline');
+            const completeSection = document.getElementById('completeTimelineSection');
+            
+            if (showCompleteBtn && hideCompleteBtn && completeSection) {
+                showCompleteBtn.addEventListener('click', function() {
+                    completeSection.style.display = 'block';
+                    showCompleteBtn.style.display = 'none';
+                });
+                
+                hideCompleteBtn.addEventListener('click', function() {
+                    completeSection.style.display = 'none';
+                    showCompleteBtn.style.display = 'block';
+                });
             }
         });
     </script>

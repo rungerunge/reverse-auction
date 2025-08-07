@@ -2935,8 +2935,11 @@ app.get('/api/auction-status', (req, res) => {
         const elapsedMs = Math.max(0, now - startTime);
         const intervalsPassed = Math.floor(elapsedMs / intervalMs);
         
-        // Generate next 10 scheduled drops starting from the NEXT interval
-        for (let i = 1; i <= 10; i++) {
+        // Generate schedule until 100% discount
+        const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement);
+        const intervalsToShow = Math.min(maxIntervals, 50); // Cap at 50 to prevent excessive data
+        
+        for (let i = 1; i <= intervalsToShow; i++) {
           let dropTime, discountPercent, intervalNumber;
           
           if (globalAuctionState.isRunning) {
@@ -2957,6 +2960,12 @@ app.get('/api/auction-status', (req, res) => {
               discountPercent = currentDiscountPercent + (intervalNumber * discountIncrement);
             }
           }
+          
+          // Cap discount at 100%
+          discountPercent = Math.min(discountPercent, 100);
+          
+          // Skip if discount would exceed 100%
+          if (discountPercent > 100) break;
           
           schedule.push({
             intervalNumber: intervalNumber,
@@ -3035,8 +3044,11 @@ app.get('/api/auction-status', (req, res) => {
       const elapsedMs = Math.max(0, now - startTime);
       const intervalsPassed = Math.floor(elapsedMs / intervalMs);
       
-      // Generate next 10 scheduled drops starting from the NEXT interval
-      for (let i = 1; i <= 10; i++) {
+      // Generate schedule until 100% discount
+      const maxIntervals = Math.ceil((100 - currentDiscountPercent) / discountIncrement);
+      const intervalsToShow = Math.min(maxIntervals, 50); // Cap at 50 to prevent excessive data
+      
+      for (let i = 1; i <= intervalsToShow; i++) {
         let dropTime, discountPercent, intervalNumber;
         
         if (auction.is_active) {
@@ -3057,6 +3069,12 @@ app.get('/api/auction-status', (req, res) => {
             discountPercent = currentDiscountPercent + (intervalNumber * discountIncrement);
           }
         }
+        
+        // Cap discount at 100%
+        discountPercent = Math.min(discountPercent, 100);
+        
+        // Skip if discount would exceed 100%
+        if (discountPercent > 100) break;
         
         schedule.push({
           intervalNumber: intervalNumber,
