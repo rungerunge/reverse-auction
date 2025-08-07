@@ -732,7 +732,7 @@ app.post('/auctions/all', async (req, res) => {
     
     globalAuctionState = {
       isRunning: isRunningNow,
-      startedAt: isRunningNow ? new Date() : null,
+      startedAt: isRunningNow ? startTime : null,
       scheduledStartTime: useScheduledStart ? startTime : null,
       timezone: selectedTimezone,
       intervalMinutes: parseInt(interval) || 1,
@@ -2435,7 +2435,7 @@ schedule.scheduleJob('* * * * *', async () => {
                 
                 // Update the global auction state
                 globalAuctionState.isRunning = true;
-                globalAuctionState.startedAt = now;
+                globalAuctionState.startedAt = new Date(auction.scheduled_start);
                 globalAuctionState.scheduledStartTime = null; // Clear scheduled time since it's now running
                 globalAuctionState.lastUpdateTime = now;
                 globalAuctionState.currentDiscountPercent = schedulerStartingDiscountPercent;
@@ -2874,7 +2874,7 @@ app.get('/api/auction-status', (req, res) => {
       }
       
       globalAuctionState.isRunning = true;
-      globalAuctionState.startedAt = now;
+      globalAuctionState.startedAt = globalAuctionState.scheduledStartTime;
       globalAuctionState.lastUpdateTime = now;
       globalAuctionState.currentDiscountPercent = auctionStartingDiscountPercent;
       
@@ -2918,9 +2918,15 @@ app.get('/api/auction-status', (req, res) => {
       let timeUntilNextUpdate;
       
       if (globalAuctionState.isRunning) {
-        // Auction is running, calculate next update time
-        nextUpdate = new Date(globalAuctionState.lastUpdateTime);
-        nextUpdate.setMinutes(nextUpdate.getMinutes() + globalAuctionState.intervalMinutes);
+        // Auction is running, calculate next update time based on original start time
+        const startTime = globalAuctionState.startedAt;
+        const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
+        const elapsedMs = Math.max(0, now - startTime);
+        const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+        const nextIntervalNumber = intervalsPassed + 1;
+        
+        // Calculate next update based on original start time + intervals
+        nextUpdate = new Date(startTime.getTime() + (nextIntervalNumber * intervalMs));
         timeUntilNextUpdate = Math.max(0, nextUpdate - now);
       } else if (globalAuctionState.scheduledStartTime) {
         // Auction is scheduled but not started yet
