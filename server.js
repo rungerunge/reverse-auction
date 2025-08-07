@@ -3000,18 +3000,75 @@ app.get('/api/auction-status', (req, res) => {
         }
       }
       
-      return       res.json({
+      // Calculate detailed timing information for debugging
+      const startTime = globalAuctionState.startedAt || globalAuctionState.scheduledStartTime;
+      const currentTime = new Date();
+      const intervalMs = globalAuctionState.intervalMinutes * 60 * 1000;
+      
+      let debugInfo = {};
+      if (startTime && globalAuctionState.isRunning) {
+        const elapsedMs = Math.max(0, currentTime - startTime);
+        const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+        const nextIntervalNumber = intervalsPassed + 1;
+        const nextScheduledUpdate = new Date(startTime.getTime() + (nextIntervalNumber * intervalMs));
+        const timeToNextUpdate = Math.max(0, nextScheduledUpdate - currentTime);
+        
+        debugInfo = {
+          startTime: startTime.toISOString(),
+          currentTime: currentTime.toISOString(),
+          elapsedMs: elapsedMs,
+          elapsedMinutes: Math.floor(elapsedMs / 60000),
+          elapsedSeconds: Math.floor((elapsedMs % 60000) / 1000),
+          intervalMs: intervalMs,
+          intervalsPassed: intervalsPassed,
+          nextIntervalNumber: nextIntervalNumber,
+          nextScheduledUpdate: nextScheduledUpdate.toISOString(),
+          timeToNextUpdateMs: timeToNextUpdate,
+          timeToNextUpdateMinutes: Math.floor(timeToNextUpdate / 60000),
+          timeToNextUpdateSeconds: Math.floor((timeToNextUpdate % 60000) / 1000),
+          expectedCurrentDiscount: globalAuctionState.startingDiscountPercent + (intervalsPassed * globalAuctionState.startingDiscountPercent),
+          nextDiscountLevel: Math.min(globalAuctionState.currentDiscountPercent + globalAuctionState.startingDiscountPercent, 100),
+          shouldUpdateNow: currentTime >= nextScheduledUpdate,
+          incrementPerInterval: globalAuctionState.startingDiscountPercent
+        };
+      }
+
+      return res.json({
+        // Basic auction status
         isRunning: globalAuctionState.isRunning,
         isScheduled: !globalAuctionState.isRunning && !!globalAuctionState.scheduledStartTime,
         currentDiscountPercent: globalAuctionState.currentDiscountPercent,
         nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
         timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
         intervalMinutes: globalAuctionState.intervalMinutes,
-        // FIXED: Show current discount as "first discount" when initial discount is set
         startingDiscountPercent: globalAuctionState.currentDiscountPercent,
         scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
         timezone: globalAuctionState.timezone || 'CET',
-        schedule: schedule  // NEW: Future price drop schedule
+        schedule: schedule,
+        
+        // NEW: Detailed debug information
+        debug: debugInfo,
+        
+        // NEW: Global auction state snapshot
+        globalState: {
+          isRunning: globalAuctionState.isRunning,
+          startedAt: globalAuctionState.startedAt ? globalAuctionState.startedAt.toISOString() : null,
+          scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
+          lastUpdateTime: globalAuctionState.lastUpdateTime ? globalAuctionState.lastUpdateTime.toISOString() : null,
+          timezone: globalAuctionState.timezone,
+          intervalMinutes: globalAuctionState.intervalMinutes,
+          startingDiscountPercent: globalAuctionState.startingDiscountPercent,
+          currentDiscountPercent: globalAuctionState.currentDiscountPercent,
+          productsCount: globalAuctionState.products ? globalAuctionState.products.length : 0
+        },
+        
+        // NEW: Server timing information
+        serverInfo: {
+          timestamp: currentTime.toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          uptime: process.uptime(),
+          schedulerStatus: 'active' // Scheduler always runs every minute
+        }
       });
     }
     
@@ -3109,19 +3166,96 @@ app.get('/api/auction-status', (req, res) => {
       }
     }
     
+    // Calculate detailed timing information for debugging (DB version)
+    const startTime = auction.is_active 
+      ? (globalAuctionState.startedAt || new Date(auction.scheduled_start))
+      : new Date(auction.scheduled_start);
+    const currentTime = new Date();
+    const intervalMs = parseInt(auction.interval_minutes) * 60 * 1000;
+    
+    let debugInfo = {};
+    if (startTime && auction.is_active) {
+      const elapsedMs = Math.max(0, currentTime - startTime);
+      const intervalsPassed = Math.floor(elapsedMs / intervalMs);
+      const nextIntervalNumber = intervalsPassed + 1;
+      const nextScheduledUpdate = new Date(startTime.getTime() + (nextIntervalNumber * intervalMs));
+      const timeToNextUpdate = Math.max(0, nextScheduledUpdate - currentTime);
+      const discountIncrement = globalAuctionState.startingDiscountPercent || parseInt(auction.reduction_percent);
+      
+      debugInfo = {
+        startTime: startTime.toISOString(),
+        currentTime: currentTime.toISOString(),
+        elapsedMs: elapsedMs,
+        elapsedMinutes: Math.floor(elapsedMs / 60000),
+        elapsedSeconds: Math.floor((elapsedMs % 60000) / 1000),
+        intervalMs: intervalMs,
+        intervalsPassed: intervalsPassed,
+        nextIntervalNumber: nextIntervalNumber,
+        nextScheduledUpdate: nextScheduledUpdate.toISOString(),
+        timeToNextUpdateMs: timeToNextUpdate,
+        timeToNextUpdateMinutes: Math.floor(timeToNextUpdate / 60000),
+        timeToNextUpdateSeconds: Math.floor((timeToNextUpdate % 60000) / 1000),
+        expectedCurrentDiscount: discountIncrement + (intervalsPassed * discountIncrement),
+        nextDiscountLevel: Math.min((globalAuctionState.currentDiscountPercent || parseInt(auction.reduction_percent)) + discountIncrement, 100),
+        shouldUpdateNow: currentTime >= nextScheduledUpdate,
+        incrementPerInterval: discountIncrement,
+        databaseNextUpdate: auction.next_update,
+        databaseReductionPercent: auction.reduction_percent
+      };
+    }
+
     res.json({
+      // Basic auction status
       isRunning: !!auction.is_active,
       isScheduled: isScheduled,
       currentDiscountPercent: globalAuctionState.currentDiscountPercent || parseInt(auction.reduction_percent),
       nextUpdateTime: nextUpdate ? nextUpdate.toISOString() : null,
       timeUntilNextUpdateMs: timeUntilNextUpdate || 0,
       intervalMinutes: parseInt(auction.interval_minutes),
-      // FIXED: Show current discount as "first discount" when initial discount is set  
       startingDiscountPercent: globalAuctionState.currentDiscountPercent || parseInt(auction.reduction_percent),
       scheduledStartTime: auction.scheduled_start ? new Date(auction.scheduled_start).toISOString() : null,
       formattedScheduledTime: formattedScheduledTime,
       timezone: auction.timezone || 'CET',
-      schedule: schedule  // NEW: Future price drop schedule
+      schedule: schedule,
+      
+      // NEW: Detailed debug information
+      debug: debugInfo,
+      
+      // NEW: Global auction state snapshot
+      globalState: {
+        isRunning: globalAuctionState.isRunning,
+        startedAt: globalAuctionState.startedAt ? globalAuctionState.startedAt.toISOString() : null,
+        scheduledStartTime: globalAuctionState.scheduledStartTime ? globalAuctionState.scheduledStartTime.toISOString() : null,
+        lastUpdateTime: globalAuctionState.lastUpdateTime ? globalAuctionState.lastUpdateTime.toISOString() : null,
+        timezone: globalAuctionState.timezone,
+        intervalMinutes: globalAuctionState.intervalMinutes,
+        startingDiscountPercent: globalAuctionState.startingDiscountPercent,
+        currentDiscountPercent: globalAuctionState.currentDiscountPercent,
+        productsCount: globalAuctionState.products ? globalAuctionState.products.length : 0
+      },
+      
+      // NEW: Database auction record
+      databaseRecord: {
+        id: auction.id,
+        productId: auction.product_id,
+        isActive: !!auction.is_active,
+        intervalMinutes: auction.interval_minutes,
+        reductionPercent: auction.reduction_percent,
+        nextUpdate: auction.next_update,
+        scheduledStart: auction.scheduled_start,
+        timezone: auction.timezone,
+        createdAt: auction.created_at,
+        originalPrice: auction.original_price,
+        currentPrice: auction.current_price
+      },
+      
+      // NEW: Server timing information
+      serverInfo: {
+        timestamp: currentTime.toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        uptime: process.uptime(),
+        schedulerStatus: 'active' // Scheduler always runs every minute
+      }
     });
   });
 });
