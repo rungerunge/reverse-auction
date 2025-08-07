@@ -2552,8 +2552,11 @@ schedule.scheduleJob('* * * * *', async () => {
       // Calculate expected discount for intervals that should have happened
       const expectedDiscountPercent = globalAuctionState.startingDiscountPercent + (intervalsPassed * globalAuctionState.startingDiscountPercent);
       
-      // Check if it's time for the next price update
-      if (now >= nextScheduledUpdate) {
+      // Check if it's time for the next price update and we haven't already updated for this interval
+      const targetDiscountForThisInterval = globalAuctionState.startingDiscountPercent + (intervalsPassed * globalAuctionState.startingDiscountPercent);
+      const hasNotYetUpdatedForThisInterval = globalAuctionState.currentDiscountPercent < targetDiscountForThisInterval;
+      
+      if (now >= currentScheduledUpdate && hasNotYetUpdatedForThisInterval) {
         console.log('!!! SCHEDULED PRICE UPDATE DUE !!!');
         
         // Calculate the new discount level
@@ -2570,8 +2573,8 @@ schedule.scheduleJob('* * * * *', async () => {
         // Apply the new discount
         await updateAllProductPrices(globalAuctionState.currentDiscountPercent);
         
-        // Calculate the NEXT update time (after the one we just processed)
-        const followingUpdateTime = new Date(startTime.getTime() + ((intervalsPassed + 2) * intervalMs));
+        // Calculate the NEXT update time (30 minutes from now)
+        const followingUpdateTime = new Date(now.getTime() + intervalMs);
         
         // Update the database with the following scheduled time
         await new Promise((resolve, reject) => {
