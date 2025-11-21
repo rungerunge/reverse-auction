@@ -7,6 +7,7 @@ import {
 } from "@remix-run/node";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
+import "./scheduler.server"; // Initialize scheduler
 
 export const streamTimeout = 5000;
 
