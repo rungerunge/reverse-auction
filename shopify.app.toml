@@ -1,5 +1,6 @@
 # This file stores configurations for your Shopify app.
 
+client_id = "85dc65d267fa381102702411577d1b05"
 name = "Reverse Auction"
 application_url = "https://reverse-auction-production.up.railway.app"
 embedded = true
